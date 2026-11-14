@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, files, poster, upscale
+from . import __version__, calibrate, files, poster, upscale
 from .layout import ANCHORS
 from .pipeline import Options, process_file
 
@@ -74,10 +74,12 @@ def build_parser():
                    help="unsharp mask amount, 0 disables (default: %(default)s)")
     g.add_argument("--sharpen-radius", type=float, default=2.0, metavar="PX",
                    help="unsharp mask radius at 300 DPI (default: %(default)s)")
-    g.add_argument("--shadows", type=float, default=0.03, metavar="S",
-                   help="shadow lift, 0-0.2 (default: %(default)s)")
-    g.add_argument("--midtones", type=float, default=0.05, metavar="S",
-                   help="midtone lift, 0 disables (default: %(default)s)")
+    saved = calibrate.load_settings()
+    note = " from a4print-calibrate" if saved else ""
+    g.add_argument("--shadows", type=float, default=saved.get("shadows", 0.03), metavar="S",
+                   help=f"shadow lift, 0-0.2 (default: %(default)s{note})")
+    g.add_argument("--midtones", type=float, default=saved.get("midtones", 0.05), metavar="S",
+                   help=f"midtone lift, 0 disables (default: %(default)s{note})")
     g.add_argument("--no-enhance", action="store_true", help="skip denoise, sharpening and tone lift")
 
     g = p.add_argument_group("upscaling")

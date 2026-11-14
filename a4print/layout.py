@@ -100,11 +100,9 @@ def extend_background(fitted, tgt_w, tgt_h, blur=0.03, feather=0.06):
     distance = cv2.distanceTransform(1 - inside, cv2.DIST_L2, 5)
     ramp = max(1.0, feather * max(tgt_w, tgt_h))
     weight = np.clip(1.0 - distance / ramp, 0.0, 1.0) ** 2
-    if fitted.ndim == 3:
-        weight = weight[..., None]
-
-    out = mirrored * weight + blurred * (1.0 - weight)
-    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+    # Blend the 8-bit images with a float weight map; posters are large
+    # enough that floating-point copies of the images would need gigabytes.
+    return cv2.blendLinear(mirrored, blurred, weight, 1.0 - weight)
 
 
 def border_color(arr, tolerance=18, min_match=0.97):

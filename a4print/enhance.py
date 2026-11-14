@@ -198,14 +198,23 @@ def tone_curve(shadows=0.03, midtones=0.05):
     return np.clip(np.round(y * 255), 0, 255).astype(np.uint8)
 
 
-def unsharp(channel, amount=0.5, radius=2.0, threshold=2):
-    """Unsharp mask on one uint8 channel. `threshold` protects flat areas."""
+def unsharp(channel, amount=0.5, radius=2.0, threshold=2, rows=1024):
+    """Unsharp mask on one uint8 channel. `threshold` protects flat areas.
+
+    Works in strips of `rows` lines (with an overlap wider than the blur),
+    so a poster-sized channel never needs full-size float copies."""
     if amount <= 0:
         return channel
-    src = channel.astype(np.float32)
-    detail = src - cv2.GaussianBlur(src, (0, 0), radius)
-    detail[np.abs(detail) < threshold] = 0
-    return np.clip(src + amount * detail + 0.5, 0, 255).astype(np.uint8)
+    out = np.empty_like(channel)
+    margin = int(radius * 4) + 2
+    for top in range(0, channel.shape[0], rows):
+        a, b = max(0, top - margin), min(channel.shape[0], top + rows + margin)
+        src = channel[a:b].astype(np.float32)
+        detail = src - cv2.GaussianBlur(src, (0, 0), radius)
+        detail[np.abs(detail) < threshold] = 0
+        strip = np.clip(src + amount * detail + 0.5, 0, 255).astype(np.uint8)
+        out[top:top + rows] = strip[top - a: top - a + rows]
+    return out
 
 
 def finish_for_print(arr, sharpen=0.5, sharpen_radius=2.0, shadows=0.03, midtones=0.05):

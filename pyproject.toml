@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a4print"
-version = "0.4.0"
+version = "0.5.0"
 description = "Prepare any image for borderless A4 printing at 300 DPI"
 readme = "README.md"
 license = "MIT"
@@ -25,6 +25,7 @@ heic = ["pillow-heif>=1.2"]
 a4print = "a4print.cli:main"
 a4print-web = "a4print.web:main"
 a4print-setup-ai = "a4print.setup_ai:main"
+a4print-calibrate = "a4print.calibrate:main"
 
 [tool.setuptools]
 packages = ["a4print"]

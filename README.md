@@ -75,7 +75,7 @@ It opens in your browser:
 3. Tick **Sharpen with AI** for small images, or click **Set up AI sharpening** the first time.
 4. Click **Make print files**.
 
-Each result says in plain words how sharp the print will be and what was done, shows a before/after preview, and has a **Download PDF** button. The other settings (fill, crop position, orientation, margin, border removal) are under **More options**; the defaults suit most images.
+Each result says in plain words how sharp the print will be and what was done, shows a before/after preview, and has a **Download PDF** button. With two or more results, **Download all as one PDF** puts every page in one file to print in one go. The page keeps the 25 most recent results. The other settings (fill, crop position, orientation, margin, border removal) are under **More options**; the defaults suit most images.
 
 Everything runs on your computer: the page only listens on `127.0.0.1` and refuses requests from other websites. Uploaded images and results are deleted when you stop it with Ctrl+C.
 
@@ -305,6 +305,29 @@ A poster on a wall is usually seen from a meter or more away, so "fine from a di
 - Pick borderless printing if your printer supports it. If it doesn't, use `--margin 5` so the printer doesn't crop or shrink the page itself.
 - Choose photo paper and the matching paper type in the driver, which matters more than any setting here.
 
+## Printer calibration
+
+Home printers differ: many print midtones darker than the screen because ink spreads into the paper, and some lose detail in deep shadows. a4print lifts both a little by default. To tune that for your printer, once:
+
+```bash
+a4print-calibrate
+```
+
+This writes `a4print_test_page.pdf`. Print it at 100% on the paper you use, and answer two questions on the sheet:
+
+1. Which is the first numbered square you can tell apart from the black band?
+2. From arm's length, which gray patch (A-E) matches the fine stripes next to it best?
+
+Then save the answers, for example square 4 and patch C:
+
+```bash
+a4print-calibrate --black 4 --gray C
+```
+
+From then on every print uses those values for `--shadows` and `--midtones` (flags still override them; `a4print-calibrate --reset` goes back to the standard values). The web page has the same steps under **More options**.
+
+Judge the sheet on paper, not on screen. The stripe test works because black-and-white stripes reflect half the light whatever the printer does with ink, so a gray patch that matches them prints at the right lightness. Screens and image viewers average the stripes differently, which makes them look darker than they print.
+
 ## Common problems
 
 | Problem | Cause and fix |
@@ -312,7 +335,7 @@ A poster on a wall is usually seen from a meter or more away, so "fine from a di
 | The print is smaller than the paper, with a white border | The print dialog is set to "Fit to page" or "Shrink to fit". Choose "Actual size" or 100%. |
 | The edges of the image are cut off by the printer | Your printer can't print borderless. Use `--margin 5`. |
 | The print looks soft or blocky | The resolution line says "low". Find a larger version of the image, or use `--ai`. |
-| The print is darker than the screen | Normal for home inkjets. a4print already lifts shadows a little; raise it with `--shadows 0.06 --midtones 0.1`. |
+| The print is darker than the screen | Normal for home inkjets. Calibrate once for your printer (see "Printer calibration"). |
 | A black-and-white photo prints with a color tint | Use the printer driver's "grayscale" or "black ink only" setting. a4print's output is neutral gray, but some drivers mix color inks. |
 | "incomplete: the download or copy was cut off" | The file is damaged, often from an interrupted download. Download it again. |
 | A warning says cropping removes most of the image | The image's shape is far from A4. Use `--fill fit`, `--fill extend`, or a poster shape like `3x2`. |

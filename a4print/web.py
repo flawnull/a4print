@@ -24,10 +24,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import cli, files, setup_ai, upscale
+import pikepdf
+
+from . import calibrate, cli, files, setup_ai, upscale
 from .pipeline import process_file
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+MAX_JOBS = 25  # older results are deleted, so a long session can't fill the disk
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 # Query parameter -> command-line flag. Flags without a value are switches.
@@ -88,7 +91,16 @@ class App:
             return False
 
     def status(self):
-        return {"ai": self.ai_available, "ai_installable": setup_ai.supported()}
+        return {"ai": self.ai_available, "ai_installable": setup_ai.supported(),
+                "print_settings": calibrate.load_settings()}
+
+    def save_print_settings(self, query):
+        try:
+            settings = calibrate.answers_to_settings(int(query.get("black", ["0"])[0]), query.get("gray", [""])[0])
+        except ValueError as exc:
+            return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+        calibrate.save_settings(settings)
+        return HTTPStatus.OK, self.status()
 
     def setup_ai(self):
         """Install Real-ESRGAN from the page (one-time ~50 MB download)."""
@@ -113,6 +125,7 @@ class App:
         job = secrets.token_hex(8)
         job_dir = self.root / job
         job_dir.mkdir(parents=True)
+        self._forget_old_jobs(keep=job_dir)
         upload = job_dir / "upload" / name
         upload.parent.mkdir()
         upload.write_bytes(data)
@@ -148,6 +161,30 @@ class App:
         }
         return HTTPStatus.OK, {"name": name, "summary": summary, "lines": cli.describe(report, opts),
                                "files": outputs}
+
+    def _forget_old_jobs(self, keep):
+        """Delete all but the newest MAX_JOBS results, never `keep` (the job
+        being made now, in case timestamps tie)."""
+        jobs = sorted((p for p in self.root.iterdir() if p.is_dir() and p != keep),
+                      key=lambda p: p.stat().st_mtime)
+        for old in jobs[:max(0, len(jobs) - (MAX_JOBS - 1))]:
+            shutil.rmtree(old, ignore_errors=True)
+
+    def combined_pdf(self, jobs):
+        """One PDF with the pages of several results, in the given order."""
+        merged = pikepdf.new()
+        for job in jobs:
+            if not re.fullmatch(r"[0-9a-f]{16}", job) or not (self.root / job).is_dir():
+                continue
+            for pdf_path in sorted((self.root / job).glob("*.pdf")):
+                with pikepdf.open(pdf_path) as part:
+                    merged.pages.extend(part.pages)
+        if not merged.pages:
+            return None
+        merged.Root.ViewerPreferences = pikepdf.Dictionary(PrintScaling=pikepdf.Name.None_)
+        out = io.BytesIO()
+        merged.save(out)
+        return out.getvalue()
 
     def output_file(self, job, name):
         if not re.fullmatch(r"[0-9a-f]{16}", job) or safe_name(name) != name:
@@ -194,6 +231,20 @@ def make_handler(app):
                                                        "script-src 'unsafe-inline'; img-src 'self' blob:"})
             elif url.path == "/status":
                 self._json(HTTPStatus.OK, app.status())
+            elif url.path == "/test-page.pdf":
+                path = app.root / "a4print_test_page.pdf"
+                if not path.exists():
+                    calibrate.write_test_page(path)
+                self._send(HTTPStatus.OK, path.read_bytes(), "application/pdf",
+                           {"Content-Disposition": 'attachment; filename="a4print_test_page.pdf"'})
+            elif url.path == "/all.pdf":
+                jobs = parse_qs(url.query).get("jobs", [""])[0].split(",")[:MAX_JOBS]
+                body = app.combined_pdf(jobs)
+                if body is None:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                self._send(HTTPStatus.OK, body, "application/pdf",
+                           {"Content-Disposition": 'attachment; filename="a4print_all.pdf"'})
             elif url.path.startswith("/files/"):
                 parts = url.path.split("/")
                 path = app.output_file(*parts[2:4]) if len(parts) == 4 else None
@@ -213,11 +264,14 @@ def make_handler(app):
             url = urlparse(self.path)
             # Other websites can't set this header without a CORS preflight,
             # which this server never approves, so they can't post here.
-            if url.path not in ("/process", "/setup-ai") or self.headers.get("X-A4print") != "1":
+            if url.path not in ("/process", "/setup-ai", "/settings") or self.headers.get("X-A4print") != "1":
                 self.send_error(HTTPStatus.FORBIDDEN)
                 return
             if url.path == "/setup-ai":
                 self._json(*app.setup_ai())
+                return
+            if url.path == "/settings":
+                self._json(*app.save_print_settings(parse_qs(url.query)))
                 return
             length = int(self.headers.get("Content-Length") or 0)
             if not 0 < length <= MAX_UPLOAD_BYTES:
@@ -328,6 +382,11 @@ PAGE = r"""<!doctype html>
   .lines dt { color: var(--muted); } .lines dd { margin: 0; overflow-wrap: anywhere; }
   .error { color: var(--error); }
   .hint { font-size: 14px; color: var(--muted); margin-top: 32px; }
+  .calib { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+  .calib a { color: var(--accent); }
+  .calib-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 8px 0; }
+  .calib-row label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+  .calib small { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -395,6 +454,22 @@ PAGE = r"""<!doctype html>
         <label class="check"><input type="checkbox" name="trim_border"> Cut off a plain border</label>
         <label class="check"><input type="checkbox" name="no_enhance"> Don't clean up or adjust tones</label>
       </div>
+      <div class="calib">
+        <b>Printer calibration</b> (optional, once per printer): prints come out darker than the
+        screen on many printers. <a href="/test-page.pdf" download>Print the test page</a> at 100%,
+        then give your answers:
+        <div class="calib-row">
+          <label>First square you can tell from black
+            <select id="cal-black"><option>1</option><option>2</option><option selected>3</option>
+              <option>4</option><option>5</option><option>6</option><option>7</option><option>8</option>
+              <option>9</option></select></label>
+          <label>Gray patch that matches its stripes
+            <select id="cal-gray"><option>A</option><option selected>B</option><option>C</option>
+              <option>D</option><option>E</option></select></label>
+          <button type="button" class="secondary" id="cal-save">Save for this printer</button>
+        </div>
+        <small id="cal-status"></small>
+      </div>
     </details>
   </form>
 
@@ -424,8 +499,22 @@ function showAI(status) {
   if (status.ai) $("ai-note").textContent =
     "Makes small images print sharper. Used only when an image needs it; the preview shows a detail at print size.";
 }
+function showSettings(s) {
+  const p = s.print_settings || {};
+  $("cal-status").textContent = p.shadows !== undefined
+    ? "Saved: shadow lift " + p.shadows + ", midtone lift " + p.midtones + ". Used for every print."
+    : "Not calibrated: using standard values.";
+}
+$("cal-save").addEventListener("click", async () => {
+  const q = new URLSearchParams({black: $("cal-black").value, gray: $("cal-gray").value});
+  const r = await fetch("/settings?" + q, {method: "POST", headers: {"X-A4print": "1"}});
+  const s = await r.json();
+  if (r.ok) showSettings(s); else $("cal-status").textContent = s.error;
+});
+
 fetch("/status").then(r => r.json()).then(s => {
   showAI(s);
+  showSettings(s);
   // AI is on by default once installed; it skips images that are already sharp.
   if (s.ai) $("ai-on").querySelector("input").checked = true;
 });
@@ -498,6 +587,7 @@ go.addEventListener("click", async () => {
     box.append(el("h2", {}, file.name), el("p", {class: "what"},
       aiChecked ? "Working... AI sharpening can take a while." : "Working..."));
     results.prepend(box);
+    box.scrollIntoView({behavior: "smooth", block: "start"});
     params.set("name", file.name);
     try {
       const response = await fetch("/process?" + params, {method: "POST", body: file, headers: {"X-A4print": "1"}});
@@ -526,7 +616,23 @@ go.addEventListener("click", async () => {
     }
   }
   go.disabled = false;
+  updateAll();
 });
+
+// "Download all" once there are two or more results with a PDF.
+const done = [];
+function updateAll() {
+  done.length = 0;
+  document.querySelectorAll(".result a.main").forEach(a => done.push(a.getAttribute("href").split("/")[2]));
+  let bar = $("all");
+  if (done.length < 2) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = el("div", {id: "all", class: "downloads"});
+    results.before(bar);
+  }
+  bar.replaceChildren(el("a", {class: "main", href: "/all.pdf?jobs=" + done.slice().reverse().join(","),
+    download: "a4print_all.pdf"}, "Download all as one PDF (" + done.length + " results)"));
+}
 </script>
 </body>
 </html>

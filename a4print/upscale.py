@@ -57,6 +57,26 @@ def realesrgan_x4(arr, model="realesrgan-x4plus"):
         return np.asarray(Image.open(dst).convert("L" if arr.ndim == 2 else "RGB"))
 
 
+def _protect_areas(result, plain, protect, scale):
+    """Put the plain enlargement back where `protect` (small text) is set,
+    with a soft edge so there's no seam. Works only inside the protected
+    areas' bounding box, so memory stays small."""
+    ys, xs = np.nonzero(protect)
+    pad = 3
+    y0, y1 = max(0, ys.min() - pad), min(protect.shape[0], ys.max() + 1 + pad)
+    x0, x1 = max(0, xs.min() - pad), min(protect.shape[1], xs.max() + 1 + pad)
+    oy0, oy1 = round(y0 * scale), min(result.shape[0], round(y1 * scale))
+    ox0, ox1 = round(x0 * scale), min(result.shape[1], round(x1 * scale))
+    mask = cv2.resize(protect[y0:y1, x0:x1], (ox1 - ox0, oy1 - oy0), interpolation=cv2.INTER_LINEAR)
+    mask = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 1.5 * scale)
+    keep_plain = np.clip(mask * 1.5, 0, 1)
+    if result.ndim == 3:
+        keep_plain = keep_plain[..., None]
+    a = result[oy0:oy1, ox0:ox1].astype(np.float32)
+    b = plain[oy0:oy1, ox0:ox1].astype(np.float32)
+    result[oy0:oy1, ox0:ox1] = np.clip(a + keep_plain * (b - a) + 0.5, 0, 255).astype(np.uint8)
+
+
 def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, label="", protect=None):
     """Resize to `size` (w, h). With ai=True, enlargements go through Real-ESRGAN
     first and Lanczos takes the result to the exact size.
@@ -70,18 +90,15 @@ def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, l
     h, w = arr.shape[:2]
     enlarging = size[0] > w or size[1] > h
     if ai and enlarging:
-        ai_result = lanczos(realesrgan_x4(arr, ai_model), size).astype(np.float32)
-        plain = lanczos(arr, size).astype(np.float32)
-        weight = np.full(ai_result.shape[:2], min(max(ai_strength, 0.0), 1.0), np.float32)
-        if protect is not None and protect.any():
-            # Areas in `protect` (small text) get the plain enlargement, with
-            # a soft edge so there's no visible seam.
-            mask = cv2.resize(protect, size, interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
-            mask = cv2.GaussianBlur(mask, (0, 0), 1.5 * size[0] / arr.shape[1])
-            weight *= 1 - np.clip(mask * 1.5, 0, 1)
-        if ai_result.ndim == 3:
-            weight = weight[..., None]
-        ai_result = np.clip(plain + weight * (ai_result - plain) + 0.5, 0, 255).astype(np.uint8)
         strength = min(max(ai_strength, 0.0), 1.0)
-        return ai_result, f"Real-ESRGAN ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
+        result = lanczos(realesrgan_x4(arr, ai_model), size)
+        plain = lanczos(arr, size)
+        if strength < 1:
+            # Blend in 8 bits: a poster can be 75 megapixels, and
+            # floating-point copies of that would need gigabytes.
+            result = cv2.addWeighted(result, strength, plain, 1 - strength, 0)
+        if protect is not None and protect.any():
+            result = np.array(result)  # writable
+            _protect_areas(result, plain, protect, size[0] / w)
+        return result, f"Real-ESRGAN ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
     return lanczos(arr, size), "Lanczos"

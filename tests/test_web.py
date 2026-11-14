@@ -158,3 +158,38 @@ def test_setup_ai_reports_failures(tmp_path, monkeypatch):
 def test_setup_ai_needs_the_page_header(server):
     status, _ = post(server + "/setup-ai", b"", {"X-A4print": "0"})
     assert status == 403
+
+
+def test_download_all_combines_results(server, portrait, landscape):
+    import pikepdf
+
+    jobs = []
+    for name, arr, extra in (("a.png", portrait, ""), ("b.png", landscape, "&poster=2x2")):
+        _, data = post(server + f"/process?name={name}{extra}", png_bytes(arr))
+        jobs.append(data["files"][0]["url"].split("/")[2])
+    status, headers, body = get(server + "/all.pdf?jobs=" + ",".join(jobs))
+    assert status == 200 and "a4print_all.pdf" in headers["Content-Disposition"]
+    with pikepdf.open(io.BytesIO(body)) as pdf:
+        assert len(pdf.pages) == 1 + 4                      # one A4 page + a 2x2 poster
+        assert pdf.Root.ViewerPreferences.PrintScaling == pikepdf.Name.None_
+    assert get(server + "/all.pdf?jobs=nothex,../x")[0] == 404
+
+
+def test_old_jobs_are_deleted(tmp_path, portrait, monkeypatch):
+    monkeypatch.setattr(web, "MAX_JOBS", 3)
+    app = web.App(tmp_path)
+    for i in range(5):
+        status, _ = app.process(f"p{i}.png", png_bytes(portrait), {"no_enhance": ["1"]})
+        assert status == 200
+    assert len([p for p in tmp_path.iterdir() if p.is_dir()]) == 3
+
+
+def test_calibration_from_the_page(server):
+    status, _, body = get(server + "/test-page.pdf")
+    assert status == 200 and body.startswith(b"%PDF")
+    status, data = post(server + "/settings?black=5&gray=C", b"")
+    assert status == 200 and data["print_settings"] == {"shadows": round(16 / 255, 3), "midtones": 0.1}
+    status, data = post(server + "/settings?black=12&gray=C", b"")
+    assert status == 400
+    status, _ = post(server + "/settings?black=5&gray=C", b"", {"X-A4print": "0"})
+    assert status == 403
