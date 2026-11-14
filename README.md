@@ -14,7 +14,23 @@ It also reports the image's effective resolution at A4 and warns when it drops b
 
 ## Install
 
-You need Python 3.10 or newer.
+You need Python 3.10 or newer. The simplest way is [pipx](https://pipx.pypa.io), which installs command-line tools in their own environment:
+
+```bash
+pipx install "a4print[heic] @ git+https://github.com/flawnull/a4print"
+```
+
+This gives you the `a4print` and `a4print-web` commands. The `[heic]` part adds iPhone photo (HEIC) support; leave it out if you don't need it. To update later, run `pipx upgrade a4print`.
+
+Without pipx, plain pip works too, ideally inside a virtual environment:
+
+```bash
+pip install "a4print[heic] @ git+https://github.com/flawnull/a4print"
+```
+
+JPEG, PNG, WebP, AVIF, TIFF, BMP and GIF work out of the box.
+
+### From a clone, for development
 
 ```bash
 git clone https://github.com/flawnull/a4print.git
@@ -25,25 +41,7 @@ cd a4print
 ```
 
 ```bash
-python -m venv .venv
-```
-
-```bash
-source .venv/bin/activate
-```
-
-On Windows, activate with `.venv\Scripts\activate` instead.
-
-```bash
-pip install -e .
-```
-
-This installs the dependencies (Pillow, OpenCV, NumPy, img2pdf) and the `a4print` command. If you'd rather not install, run `pip install -r requirements.txt` and use `python -m a4print` in place of `a4print`.
-
-JPEG, PNG, WebP, AVIF, TIFF, BMP and GIF work out of the box. For iPhone photos (HEIC), add:
-
-```bash
-pip install -e ".[heic]"
+pip install -e ".[dev,heic]"
 ```
 
 ### Optional: AI upscaling
@@ -285,6 +283,24 @@ A poster on a wall is usually seen from a meter or more away, so "fine from a di
 - In the print dialog, choose "Actual size" or 100% scale, not "Fit to page". a4print's PDFs ask for this already, and Acrobat and most viewers follow it, but check the dialog once.
 - Pick borderless printing if your printer supports it. If it doesn't, use `--margin 5` so the printer doesn't crop or shrink the page itself.
 - Choose photo paper and the matching paper type in the driver, which matters more than any setting here.
+
+## Common problems
+
+| Problem | Cause and fix |
+|---|---|
+| The print is smaller than the paper, with a white border | The print dialog is set to "Fit to page" or "Shrink to fit". Choose "Actual size" or 100%. |
+| The edges of the image are cut off by the printer | Your printer can't print borderless. Use `--margin 5`. |
+| The print looks soft or blocky | The resolution line says "low". Find a larger version of the image, or use `--ai`. |
+| The print is darker than the screen | Normal for home inkjets. a4print already lifts shadows a little; raise it with `--shadows 0.06 --midtones 0.1`. |
+| A black-and-white photo prints with a color tint | Use the printer driver's "grayscale" or "black ink only" setting. a4print's output is neutral gray, but some drivers mix color inks. |
+| "incomplete: the download or copy was cut off" | The file is damaged, often from an interrupted download. Download it again. |
+| A warning says cropping removes most of the image | The image's shape is far from A4. Use `--fill fit`, `--fill extend`, or a poster shape like `3x2`. |
+
+## Inputs
+
+Anything Pillow can open works: photos with EXIF rotation, PNGs with transparency (placed on white), 16-bit and 32-bit float scans, 1-bit black-and-white scans, CMYK files, and the first frame of animated GIFs. Embedded color profiles are converted to sRGB.
+
+Very large images (over 100 megapixels, like stitched panoramas) are reduced while loading, which is fast and still leaves more detail than any page or poster needs. Files over 400 megapixels are refused, because decoding them would need gigabytes of memory.
 
 ## Folders
 

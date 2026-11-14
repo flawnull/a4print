@@ -68,6 +68,8 @@ def estimate_noise(arr):
     """
     # Crop rather than shrink: shrinking would average the noise away.
     h, w = arr.shape[:2]
+    if h < 8 or w < 8:
+        return 0.0  # too small to measure
     y, x = max(0, (h - 1600) // 2), max(0, (w - 1600) // 2)
     gray = to_gray(arr[y:y + 1600, x:x + 1600]).astype(np.float64)
     kernel = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=np.float64)

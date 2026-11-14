@@ -108,3 +108,30 @@ def test_list_images_skips_own_outputs(tmp_path):
 def test_output_names_avoid_clashes(tmp_path):
     paths = [tmp_path / "photo.jpg", tmp_path / "photo.PNG", tmp_path / "other.webp"]
     assert list(files.output_names(paths).values()) == ["photo_jpg", "photo_png", "other"]
+
+
+def test_truncated_download_gets_a_clear_error(tmp_path):
+    full = tmp_path / "full.jpg"
+    Image.fromarray(np.random.default_rng(0).integers(0, 255, (300, 400, 3), dtype=np.uint8)).save(full)
+    cut = tmp_path / "cut.jpg"
+    cut.write_bytes(full.read_bytes()[: full.stat().st_size // 2])
+    with pytest.raises(ValueError, match="incomplete"):
+        files.load_rgb(cut)
+
+
+@pytest.mark.parametrize("fmt", ["JPEG", "PNG"])
+def test_huge_images_are_reduced_while_loading(tmp_path, monkeypatch, fmt):
+    monkeypatch.setattr(files, "LOAD_LIMIT_PIXELS", 20_000)
+    path = tmp_path / f"big.{fmt.lower()}"
+    Image.new("RGB", (400, 300), (120, 80, 40)).save(path, fmt)
+    info = {}
+    arr = files.load_rgb(path, info)
+    assert arr.shape[0] * arr.shape[1] <= 20_000
+    assert info["reduced_from"] == (400, 300)
+    assert abs(arr.shape[1] / arr.shape[0] - 4 / 3) < 0.05
+
+
+def test_float_tiff_in_0_to_1_range(tmp_path):
+    path = tmp_path / "hdr.tif"
+    Image.fromarray(np.full((20, 30), 0.5, np.float32)).save(path)
+    assert abs(int(files.load_rgb(path)[0, 0, 0]) - 128) <= 1

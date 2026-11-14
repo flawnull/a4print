@@ -1,6 +1,7 @@
 """Loading images into sRGB and writing the PNG, PDF and preview."""
 
 import io
+import math
 from pathlib import Path
 
 import img2pdf
@@ -27,6 +28,13 @@ _JPEG_LUMA = [
     18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113, 92,
     49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99,
 ]
+
+# Larger images are reduced while loading: even a 6x6 sheet poster needs
+# under 100 megapixels. Above MAX_PIXELS a file is refused, since decoding
+# it would need gigabytes of memory.
+LOAD_LIMIT_PIXELS = 100_000_000
+MAX_PIXELS = 400_000_000
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
 _SRGB = ImageCms.createProfile("sRGB")
 SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB).tobytes()
@@ -60,17 +68,55 @@ def output_names(paths):
     }
 
 
-def load_rgb(path):
+def load_rgb(path, info=None):
     """Open an image as 8-bit sRGB: EXIF rotation applied, transparency on white,
-    any embedded color profile (Adobe RGB, Display P3, CMYK...) converted to sRGB."""
+    any embedded color profile (Adobe RGB, Display P3, CMYK...) converted to sRGB.
+
+    Images over LOAD_LIMIT_PIXELS are reduced while loading; if `info` is a
+    dict, the original size is stored in info["reduced_from"]."""
+    name = Path(path).name
     try:
         img = Image.open(path)
     except UnidentifiedImageError:
         if Path(path).suffix.lower() in (".heic", ".heif") and not HEIF_SUPPORT:
             raise ValueError("HEIC/HEIF photos need pillow-heif: pip install pillow-heif") from None
-        raise ValueError(f"{Path(path).name} is not an image Pillow can read") from None
+        raise ValueError(f"{name} is not an image Pillow can read") from None
+    except Image.DecompressionBombError:
+        raise ValueError(f"{name} is too large: over {MAX_PIXELS // 1_000_000} megapixels") from None
+
+    try:
+        return _to_srgb_array(_reduce_if_huge(img, info), name)
+    except OSError as exc:
+        if "truncated" in str(exc) or "broken" in str(exc):
+            raise ValueError(f"{name} is incomplete: the download or copy was cut off. "
+                             "Get the file again.") from None
+        raise
+
+
+def _reduce_if_huge(img, info):
+    w, h = img.size
+    if w * h <= LOAD_LIMIT_PIXELS:
+        return img
+    factor = math.ceil(math.sqrt(w * h / LOAD_LIMIT_PIXELS))
+    if img.format == "JPEG":
+        img.draft(img.mode, (w // factor, h // factor))  # decode at 1/2, 1/4 or 1/8 size
+    step = max(1, min(img.size[0] * img.size[1] // LOAD_LIMIT_PIXELS, factor))
+    while img.size[0] * img.size[1] > LOAD_LIMIT_PIXELS:
+        img = img.reduce(max(2, step))
+    if info is not None:
+        info["reduced_from"] = (w, h)
+    return img
+
+
+def _to_srgb_array(img, name):
     img = ImageOps.exif_transpose(img)
     icc = img.info.get("icc_profile")
+
+    if img.mode == "F":
+        # 32-bit float: scientific and HDR exports use 0-1, others 0-255.
+        data = np.asarray(img, dtype=np.float64)
+        top = 1.0 if np.nanmax(data) <= 1.0 else 255.0
+        img = Image.fromarray(np.clip(np.nan_to_num(data) / top * 255 + 0.5, 0, 255).astype(np.uint8))
 
     if img.mode in ("I;16", "I;16B", "I;16L", "I"):
         # 16-bit gray: scale the full 0-65535 range to 0-255. Don't stretch

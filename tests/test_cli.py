@@ -204,3 +204,34 @@ def test_pdf_asks_viewers_to_print_at_actual_size(tmp_path, save, portrait):
     cli.main([str(save(portrait, "p.png")), "-o", str(tmp_path / "o"), "--no-preview"])
     with pikepdf.open(tmp_path / "o" / "p_a4.pdf") as pdf:
         assert pdf.Root.ViewerPreferences.PrintScaling == pikepdf.Name.None_
+
+
+@pytest.mark.parametrize("size", [(1, 1), (5, 3), (16, 16)])
+def test_tiny_images_do_not_break(size):
+    img = np.zeros((size[1], size[0], 3), np.uint8)
+    img[:] = (200, 100, 50)
+    page, report = prepare(img, Options())
+    assert page.shape[:2] in ((3508, 2480), (2480, 3508))
+    assert report.quality.startswith("low")
+
+
+def test_heavy_crop_warns():
+    panorama = gradient(3000, 400)
+    _, report = prepare(panorama, Options())
+    assert any("cropping removes" in w for w in report.warnings)
+    _, report = prepare(gradient(1600, 1000), Options())
+    assert not any("cropping removes" in w for w in report.warnings)
+
+
+def test_thin_extend_warns():
+    _, report = prepare(gradient(3000, 200), Options(fill="extend"))
+    assert any("covers only" in w for w in report.warnings)
+
+
+def test_large_original_tip(tmp_path, monkeypatch):
+    from a4print import files
+    monkeypatch.setattr(files, "LOAD_LIMIT_PIXELS", 50_000)
+    path = tmp_path / "big.png"
+    Image.fromarray(gradient(600, 400)).save(path)
+    report, _ = process_file(path, tmp_path / "o", Options(pdf=False, preview=False))
+    assert any("reduced" in t for t in report.tips)

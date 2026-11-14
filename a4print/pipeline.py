@@ -89,9 +89,17 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         arr = arr[y0:y1, x0:x1]
         out_size = (area_w, area_h)
         report.effective_dpi = layout.effective_dpi(x1 - x0, area_w, dpi)
+        kept = (x1 - x0) * (y1 - y0) / (w * h)
+        if kept < 0.6:
+            report.warnings.append(f"cropping removes {100 - kept * 100:.0f}% of the image; "
+                                   "fit or extend (--fill) keeps all of it")
     else:
         out_size = layout.fit_size(w, h, area_w, area_h)
         report.effective_dpi = layout.effective_dpi(w, out_size[0], dpi)
+        covered = out_size[0] * out_size[1] / (area_w * area_h)
+        if opts.fill == "extend" and covered < 0.5:
+            report.warnings.append(f"the image covers only {covered * 100:.0f}% of the page and the rest "
+                                   "is blurred, mirrored edges; fit (--fill fit) may look cleaner")
     report.quality = layout.print_quality(report.effective_dpi)
 
     if report.effective_dpi < opts.min_dpi:
@@ -176,7 +184,8 @@ def process_file(path, out_dir, opts, name=None):
     name = name or path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    original = files.load_rgb(path)
+    load_info = {}
+    original = files.load_rgb(path, load_info)
     quality = files.jpeg_quality(path)
 
     if opts.poster:
@@ -199,6 +208,12 @@ def process_file(path, out_dir, opts, name=None):
             files.save_pdf(pages, pdf)
             report.outputs.append(pdf)
         preview_name = f"{name}_preview.jpg"
+
+    if "reduced_from" in load_info:
+        w, h = load_info["reduced_from"]
+        report.tips.append(f"very large original ({w} x {h} px) was reduced to "
+                           f"{original.shape[1]} x {original.shape[0]} px while loading, "
+                           "still more than the print needs")
 
     if opts.preview:
         preview = out_dir / preview_name
