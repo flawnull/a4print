@@ -24,6 +24,7 @@ class Options:
     midtones: float = 0.05
     ai: bool = False
     ai_model: str = "realesrgan-x4plus"
+    ai_strength: float = 0.7       # mix of AI result vs plain resize
     min_dpi: float = 150
     pdf: bool = True
     preview: bool = True
@@ -94,7 +95,7 @@ def prepare(arr, opts, jpeg_quality=None):
         arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
 
     # 6. Scale.
-    arr, report.resize_method = upscale.resize(arr, out_size, opts.ai, opts.ai_model)
+    arr, report.resize_method = upscale.resize(arr, out_size, opts.ai, opts.ai_model, opts.ai_strength)
 
     # 7. Fill the rest of the printable area, then add the margin.
     if opts.fill == "fit":

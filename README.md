@@ -58,6 +58,8 @@ export A4PRINT_REALESRGAN=/path/to/realesrgan-ncnn-vulkan
 
 If `--ai` is used and the tool can't be found, a4print stops and tells you how to install it.
 
+Speed depends on your hardware. With a graphics card it takes a few seconds per image. Without one it still works through a software Vulkan driver (on Linux, `mesa-vulkan-drivers`), but expect about 3 minutes for a 500 px photo.
+
 ## Usage
 
 Print a photo, filling the page:
@@ -122,6 +124,12 @@ Upscale a small image with Real-ESRGAN:
 a4print small.jpg --ai
 ```
 
+Illustrations, posters and graphics can take the AI result at full strength:
+
+```bash
+a4print illustration.png --ai --ai-strength 1
+```
+
 Turn off all tone and sharpness changes:
 
 ```bash
@@ -160,7 +168,8 @@ holiday.jpg
 | `--midtones S` | `0.05` | Midtone lift. `0` turns it off |
 | `--no-enhance` | off | Skip denoise, sharpening and tone lift |
 | `--ai` | off | Upscale with Real-ESRGAN instead of Lanczos |
-| `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name |
+| `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name (`realesrgan-x4plus-anime` for drawings) |
+| `--ai-strength S` | `0.7` | Mix of the AI result with a plain resize. See "AI upscaling" |
 | `--min-dpi N` | `150` | Warn below this effective DPI |
 | `--no-pdf`, `--no-preview` | off | Skip those outputs |
 | `--combine` | off | Also write every page into one PDF, `a4print_all.pdf` |
@@ -182,13 +191,21 @@ In order:
 5. Cleans up, only when needed, before scaling so problems aren't enlarged:
    - Sensor noise, measured in the flat half of the image (Immerkaer's method with edges excluded, after Tai & Yang 2008), so texture like hair or fabric isn't mistaken for noise. 30% of the original grain is blended back, so photos don't get a plastic look.
    - JPEG artifacts in heavily compressed files (quality under 80, typical for Pinterest and social media). The quality is read from the file's quantization tables, as ImageMagick does.
-6. Crops or scales with Lanczos, or with Real-ESRGAN 4x followed by Lanczos to the exact size when `--ai` is set and the image needs enlarging.
+6. Crops or scales with Lanczos. With `--ai`, images that need enlarging go through Real-ESRGAN 4x, then Lanczos to the exact size, mixed with a plain resize per `--ai-strength`.
 7. Adds the white border (`fit`), the blurred extension (`extend`) and the `--margin`, if any.
 8. Applies a gentle unsharp mask and a shadow and midtone lift to luminance only (Lab L channel). Hue and saturation are left alone. Home inkjets print shadows darker than screens show them, which is what the lift compensates for.
 
 a4print does nothing else. It doesn't retouch faces, change colors, or recompose the image.
 
 The PDF stores the page as a quality-95 JPEG with no chroma subsampling. That keeps it to a few MB; the PNG is the lossless copy.
+
+## AI upscaling
+
+Small images (most Pinterest and social media downloads print at 35-60 DPI on A4) gain the most from `--ai`. Real-ESRGAN draws sharp edges and plausible fine detail such as hair, fur and fabric, where plain resizing gives a blur.
+
+At full strength it also smooths skin into a waxy, airbrushed look. By default a4print mixes 70% of the AI result with 30% of a plain resize. That keeps the sharp edges and brings back natural texture. Use `--ai-strength 1` for illustrations and graphics, and 0.5 if a portrait still looks too smooth.
+
+a4print's JPEG and noise cleanup runs before the AI. Without it, Real-ESRGAN turns JPEG blocks into invented blotches.
 
 ## Print quality ratings
 

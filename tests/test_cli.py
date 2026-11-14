@@ -1,5 +1,6 @@
 import io
 
+import numpy as np
 import pytest
 from PIL import Image, ImageCms
 
@@ -93,9 +94,17 @@ def test_ai_calls_realesrgan(tmp_path, portrait, monkeypatch):
     fake.chmod(0o755)
     monkeypatch.setenv(upscale.ENV_VAR, str(fake))
 
-    page, report = prepare(portrait, Options(ai=True))
+    page, report = prepare(portrait, Options(ai=True, ai_strength=1.0, enhance=False))
     assert page.shape == (3508, 2480, 3)
-    assert report.resize_method == "Real-ESRGAN + Lanczos"
+    assert report.resize_method == "Real-ESRGAN (100%) + Lanczos"
+
+    # Strength 0 is a plain Lanczos resize; 0.5 lands between the two.
+    plain, _ = prepare(portrait, Options(enhance=False))
+    zero, _ = prepare(portrait, Options(ai=True, ai_strength=0.0, enhance=False))
+    half, _ = prepare(portrait, Options(ai=True, ai_strength=0.5, enhance=False))
+    assert np.abs(zero.astype(int) - plain).max() <= 1
+    gap_full = np.abs(page.astype(int) - plain).mean()
+    assert 0.3 * gap_full < np.abs(half.astype(int) - plain).mean() < 0.7 * gap_full
 
 
 def test_margin_adds_white_frame(landscape):

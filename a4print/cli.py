@@ -59,6 +59,9 @@ def build_parser():
     g = p.add_argument_group("upscaling")
     g.add_argument("--ai", action="store_true", help="upscale with Real-ESRGAN (realesrgan-ncnn-vulkan)")
     g.add_argument("--ai-model", default="realesrgan-x4plus", help="Real-ESRGAN model (default: %(default)s)")
+    g.add_argument("--ai-strength", type=float, default=0.7, metavar="S",
+                   help="0-1 mix of the AI result with a plain resize; 1.0 for illustrations, "
+                        "lower keeps skin natural (default: %(default)s)")
     g.add_argument("--min-dpi", type=float, default=150, help="warn below this effective DPI (default: %(default)s)")
 
     g = p.add_argument_group("output")
@@ -76,7 +79,7 @@ def options_from_args(args):
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
         shadows=args.shadows, midtones=args.midtones,
-        ai=args.ai, ai_model=args.ai_model, min_dpi=args.min_dpi,
+        ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength, min_dpi=args.min_dpi,
         pdf=not args.no_pdf, preview=not args.no_preview,
     )
 
@@ -108,7 +111,9 @@ def main(argv=None):
     failures = 0
     pages = []
     for path in images:
-        print(f"{path.name}")
+        print(f"{path.name}", flush=True)
+        if opts.ai:
+            print("  upscaling   Real-ESRGAN running (seconds on a GPU, minutes on CPU)", flush=True)
         try:
             r, pdf_page = process_file(path, args.output_dir, opts)
         except Exception as exc:  # Keep going through a folder.

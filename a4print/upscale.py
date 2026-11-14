@@ -56,14 +56,23 @@ def realesrgan_x4(arr, model="realesrgan-x4plus"):
         return np.asarray(Image.open(dst).convert("L" if arr.ndim == 2 else "RGB"))
 
 
-def resize(arr, size, ai=False, ai_model="realesrgan-x4plus"):
+def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7):
     """Resize to `size` (w, h). With ai=True, enlargements go through Real-ESRGAN
     first and Lanczos takes the result to the exact size.
+
+    `ai_strength` mixes the AI result with a plain Lanczos resize. Full
+    strength gives skin a waxy, airbrushed look; 0.7 keeps the sharp edges
+    and brings back natural texture. Use 1.0 for illustrations.
 
     Returns (array, method_used).
     """
     h, w = arr.shape[:2]
     enlarging = size[0] > w or size[1] > h
     if ai and enlarging:
-        return lanczos(realesrgan_x4(arr, ai_model), size), "Real-ESRGAN + Lanczos"
+        ai_result = lanczos(realesrgan_x4(arr, ai_model), size)
+        strength = min(max(ai_strength, 0.0), 1.0)
+        if strength < 1:
+            plain = lanczos(arr, size).astype(np.float32)
+            ai_result = np.clip(plain + strength * (ai_result - plain) + 0.5, 0, 255).astype(np.uint8)
+        return ai_result, f"Real-ESRGAN ({strength:.0%}) + Lanczos"
     return lanczos(arr, size), "Lanczos"
