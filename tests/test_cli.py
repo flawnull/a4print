@@ -1,10 +1,12 @@
 import io
+import sys
 
 import numpy as np
 import pytest
 from PIL import Image, ImageCms
 
-from a4print import cli, upscale
+from a4print import cli, enhance, upscale
+from tests.conftest import gradient, with_noise
 from a4print.pipeline import Options, prepare, process_file
 
 
@@ -85,9 +87,9 @@ img.resize((img.width * 4, img.height * 4)).save(args["-o"])
 """
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in binary is a Unix script")
 def test_ai_calls_realesrgan(tmp_path, portrait, monkeypatch):
     """A stand-in binary with the same command line as realesrgan-ncnn-vulkan."""
-    import sys
 
     fake = tmp_path / "realesrgan-ncnn-vulkan"
     fake.write_text(FAKE_REALESRGAN.format(python=sys.executable))
@@ -134,3 +136,63 @@ def test_jpeg_cleanup_reported(tmp_path, landscape):
     Image.fromarray(landscape).save(path, quality=40)
     report, _ = process_file(path, tmp_path / "o", Options(pdf=False, preview=False))
     assert "JPEG quality 40" in report.cleanup
+
+
+def test_same_name_inputs_do_not_overwrite(tmp_path, portrait, landscape):
+    Image.fromarray(portrait).save(tmp_path / "photo.png")
+    Image.fromarray(landscape).save(tmp_path / "photo.jpg")
+    out = tmp_path / "out"
+    assert cli.main([str(tmp_path), "-o", str(out), "--no-pdf", "--no-preview"]) == 0
+    assert Image.open(out / "photo_png_a4.png").size == (2480, 3508)
+    assert Image.open(out / "photo_jpg_a4.png").size == (3508, 2480)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("10,20,30,40", (10, 20, 30, 40)),
+    ("70%,90%,30%,10%", ("70.0%", "90.0%", "30.0%", "10.0%")),
+    ("5, 50%, 100, 2.5%", (5, "50.0%", 100, "2.5%")),
+])
+def test_region_parsing(text, expected):
+    assert cli.region(text) == expected
+
+
+@pytest.mark.parametrize("text", ["1,2,3", "a,b,c,d", "0,0,0,10", "0,0,10,-5%"])
+def test_bad_regions(text):
+    with pytest.raises(Exception):
+        cli.region(text)
+
+
+def test_percent_region_erases_watermark():
+    img = np.zeros((400, 600, 3), np.uint8)
+    img[:] = (90, 140, 60)
+    img[360:390, 420:590] = 255  # bottom-right "watermark"
+    cleaned = enhance.inpaint_regions(img, [("68%", "88%", "31%", "11%")])
+    assert np.abs(cleaned[375, 500].astype(int) - (90, 140, 60)).max() < 10
+    # The pipeline accepts the same percentage regions.
+    page, _ = prepare(img, Options(remove=[("68%", "88%", "31%", "11%")], enhance=False))
+    assert page.shape == (2480, 3508, 3)
+
+
+def test_grid_only_writes_grid(tmp_path, save, portrait):
+    out = tmp_path / "out"
+    assert cli.main([str(save(portrait, "p.png")), "-o", str(out), "--grid"]) == 0
+    assert sorted(p.name for p in out.iterdir()) == ["p_grid.jpg"]
+    assert Image.open(out / "p_grid.jpg").size == (600, 900)
+
+
+def test_ai_skipped_when_already_sharp(monkeypatch, tmp_path):
+    """A 300 DPI image gains nothing from AI, so Real-ESRGAN must not run."""
+    monkeypatch.setenv(upscale.ENV_VAR, str(tmp_path / "missing-binary"))
+    monkeypatch.setenv("PATH", str(tmp_path))
+    big = np.zeros((3508, 2480, 3), np.uint8)
+    big[:] = (120, 90, 60)
+    page, report = prepare(big[:3000, :2200], Options(ai=True, enhance=False))
+    assert page.shape == (3508, 2480, 3)
+    assert "AI skipped" in report.resize_method
+
+
+def test_large_image_is_shrunk_before_cleanup():
+    noisy_big = with_noise(gradient(3000, 4300), 6)
+    page, report = prepare(noisy_big, Options())
+    assert page.shape == (3508, 2480, 3)
+    assert report.effective_dpi > 300

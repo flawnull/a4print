@@ -89,3 +89,22 @@ def test_not_an_image(tmp_path):
     path.write_text("hello")
     with pytest.raises(ValueError, match="not an image"):
         files.load_rgb(path)
+
+
+def test_dark_16_bit_scan_stays_dark(tmp_path):
+    """A dark 16-bit image must not be stretched to full brightness."""
+    data = np.full((40, 40), 12850, np.uint16)  # 20% gray in 16-bit
+    path = tmp_path / "dark16.png"
+    Image.fromarray(data).save(path)
+    assert abs(int(files.load_rgb(path)[0, 0, 0]) - 51) <= 1  # 20% of 255
+
+
+def test_list_images_skips_own_outputs(tmp_path):
+    for name in ("cat.jpg", "cat_a4.png", "cat_preview.jpg", "cat_grid.jpg", "notes.txt"):
+        (tmp_path / name).write_bytes(b"")
+    assert [p.name for p in files.list_images(tmp_path)] == ["cat.jpg"]
+
+
+def test_output_names_avoid_clashes(tmp_path):
+    paths = [tmp_path / "photo.jpg", tmp_path / "photo.PNG", tmp_path / "other.webp"]
+    assert list(files.output_names(paths).values()) == ["photo_jpg", "photo_png", "other"]

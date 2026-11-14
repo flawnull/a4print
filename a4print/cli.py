@@ -10,13 +10,19 @@ from .pipeline import Options, process_file
 
 
 def region(text):
+    """x,y,w,h where each value is pixels (120) or a percentage (10%)."""
+    parts = [v.strip() for v in text.split(",")]
+    values = []
     try:
-        x, y, w, h = (int(v) for v in text.split(","))
+        if len(parts) != 4:
+            raise ValueError
+        for v in parts:
+            values.append(f"{float(v[:-1])}%" if v.endswith("%") else int(v))
     except ValueError:
-        raise argparse.ArgumentTypeError(f"expected x,y,w,h in pixels, got '{text}'")
-    if w <= 0 or h <= 0:
+        raise argparse.ArgumentTypeError(f"expected x,y,w,h in pixels or percent (e.g. 70%,90%,30%,10%), got '{text}'")
+    if any((float(v[:-1]) if isinstance(v, str) else v) <= 0 for v in values[2:]):
         raise argparse.ArgumentTypeError("width and height must be positive")
-    return x, y, w, h
+    return tuple(values)
 
 
 def build_parser():
@@ -43,7 +49,10 @@ def build_parser():
 
     g = p.add_argument_group("cleanup")
     g.add_argument("--remove", type=region, action="append", default=[], metavar="x,y,w,h",
-                   help="erase a rectangle (original image pixels) by inpainting; repeatable")
+                   help="erase a rectangle by inpainting, in pixels of the original image or "
+                        "percentages (70%%,90%%,30%%,10%%); repeatable. --grid helps find them")
+    g.add_argument("--grid", action="store_true",
+                   help="only save name_grid.jpg, the image with labeled coordinates, for --remove")
     g.add_argument("--denoise", type=float, default=1.0, metavar="S",
                    help="denoise strength, 0 disables; skipped on clean images (default: %(default)s)")
     g.add_argument("--sharpen", type=float, default=0.5, metavar="S",
@@ -108,6 +117,16 @@ def main(argv=None):
         print("error: --margin can't be negative", file=sys.stderr)
         return 2
 
+    names = files.output_names(images)
+    if args.grid:
+        out_dir = Path(args.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for path in images:
+            grid = out_dir / f"{names[path]}_grid.jpg"
+            files.save_grid(files.load_rgb(path), grid)
+            print(f"{path.name}\n  saved       {grid}")
+        return 0
+
     failures = 0
     pages = []
     for path in images:
@@ -115,7 +134,7 @@ def main(argv=None):
         if opts.ai:
             print("  upscaling   Real-ESRGAN running (seconds on a GPU, minutes on CPU)", flush=True)
         try:
-            r, pdf_page = process_file(path, args.output_dir, opts)
+            r, pdf_page = process_file(path, args.output_dir, opts, names[path])
         except Exception as exc:  # Keep going through a folder.
             failures += 1
             print(f"  error: {exc}", file=sys.stderr)

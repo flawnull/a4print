@@ -6,6 +6,10 @@ from pathlib import Path
 
 from . import enhance, files, layout, upscale
 
+# Above this, the image is already sharp on paper and Real-ESRGAN adds
+# minutes of work for no visible gain.
+AI_USEFUL_BELOW_DPI = 240
+
 
 @dataclass
 class Options:
@@ -90,12 +94,22 @@ def prepare(arr, opts, jpeg_quality=None):
         hint = "use a larger version of the image if you can" + ("" if opts.ai else ", or try --ai")
         report.warnings.append(f"below {opts.min_dpi:.0f} DPI: {hint}")
 
-    # 5. Clean noise and JPEG artifacts at the source resolution, before they get enlarged.
-    if opts.enhance:
-        arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
-
-    # 6. Scale.
-    arr, report.resize_method = upscale.resize(arr, out_size, opts.ai, opts.ai_model, opts.ai_strength)
+    # 5-6. Clean noise and JPEG artifacts, and scale. When enlarging, clean
+    # first so problems aren't enlarged. When shrinking, scale first: it's
+    # faster, and shrinking already hides most noise. JPEG blocks shrunk
+    # below half size are invisible, so they're left alone.
+    scale = out_size[0] / arr.shape[1]
+    use_ai = opts.ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
+    if scale >= 1:
+        if opts.enhance:
+            arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
+        arr, report.resize_method = upscale.resize(arr, out_size, use_ai, opts.ai_model, opts.ai_strength)
+    else:
+        arr, report.resize_method = upscale.resize(arr, out_size)
+        if opts.enhance:
+            arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality if scale >= 0.5 else None)
+    if opts.ai and not use_ai:
+        report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 
     # 7. Fill the rest of the printable area, then add the margin.
     if opts.fill == "fit":
@@ -112,30 +126,32 @@ def prepare(arr, opts, jpeg_quality=None):
     return arr, report
 
 
-def process_file(path, out_dir, opts):
-    """Load, prepare and save one image.
+def process_file(path, out_dir, opts, name=None):
+    """Load, prepare and save one image. `name` is the base for output file
+    names (default: the input's name without extension).
 
     Returns (report, pdf_page_bytes) so the caller can also build a
     combined PDF."""
     path, out_dir = Path(path), Path(out_dir)
+    name = name or path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
 
     original = files.load_rgb(path)
     page, report = prepare(original, opts, files.jpeg_quality(path))
     page_img = files.to_rgb_image(page)
 
-    png = out_dir / f"{path.stem}_a4.png"
+    png = out_dir / f"{name}_a4.png"
     files.save_png(page_img, png)
     report.outputs.append(png)
 
     pdf_bytes = files.pdf_page(page_img)
     if opts.pdf:
-        pdf = out_dir / f"{path.stem}_a4.pdf"
+        pdf = out_dir / f"{name}_a4.pdf"
         files.save_pdf([pdf_bytes], pdf)
         report.outputs.append(pdf)
 
     if opts.preview:
-        preview = out_dir / f"{path.stem}_preview.jpg"
+        preview = out_dir / f"{name}_preview.jpg"
         files.save_preview(files.to_rgb_image(original), page_img, preview)
         report.outputs.append(preview)
 

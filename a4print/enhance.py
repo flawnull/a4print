@@ -32,11 +32,23 @@ def to_gray(arr):
     return arr if arr.ndim == 2 else cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 
 
+def resolve_region(region, width, height):
+    """(x, y, w, h) in pixels. Values may be ints (pixels) or strings like
+    "10%" (of the image width for x and w, of the height for y and h)."""
+    totals = (width, height, width, height)
+    return tuple(
+        round(float(v[:-1]) / 100 * total) if isinstance(v, str) else int(v)
+        for v, total in zip(region, totals)
+    )
+
+
 def inpaint_regions(arr, regions, radius=5):
-    """Erase rectangles (x, y, w, h) by filling them from the surroundings."""
+    """Erase rectangles (x, y, w, h) by filling them from the surroundings.
+    Values are pixels or percentages, see resolve_region."""
     h, w = arr.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
-    for x, y, rw, rh in regions:
+    for region in regions:
+        x, y, rw, rh = resolve_region(region, w, h)
         x0, y0 = max(0, x), max(0, y)
         x1, y1 = min(w, x + rw), min(h, y + rh)
         if x1 <= x0 or y1 <= y0:

@@ -31,12 +31,32 @@ _SRGB = ImageCms.createProfile("sRGB")
 SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB).tobytes()
 
 
+OUTPUT_SUFFIXES = ("_a4", "_preview", "_grid")
+
+
 def list_images(path):
-    """One file, or every image directly inside a folder (sorted)."""
+    """One file, or every image directly inside a folder (sorted).
+
+    Files a4print wrote itself (name_a4.png, name_preview.jpg, ...) are
+    skipped, so running twice on the same folder doesn't process them."""
     path = Path(path)
     if path.is_dir():
-        return sorted(p for p in path.iterdir() if p.suffix.lower() in EXTENSIONS)
+        return sorted(
+            p for p in path.iterdir()
+            if p.suffix.lower() in EXTENSIONS and not p.stem.endswith(OUTPUT_SUFFIXES)
+        )
     return [path]
+
+
+def output_names(paths):
+    """Base name for each input's outputs. Usually the file name without
+    extension; when two inputs share one (photo.jpg, photo.png), the
+    extension is kept too (photo_jpg, photo_png) so nothing is overwritten."""
+    stems = [p.stem for p in paths]
+    return {
+        p: f"{p.stem}_{p.suffix.lstrip('.').lower()}" if stems.count(p.stem) > 1 else p.stem
+        for p in paths
+    }
 
 
 def load_rgb(path):
@@ -52,8 +72,11 @@ def load_rgb(path):
     icc = img.info.get("icc_profile")
 
     if img.mode in ("I;16", "I;16B", "I;16L", "I"):
+        # 16-bit gray: scale the full 0-65535 range to 0-255. Don't stretch
+        # to the brightest pixel, which would lighten dark scans.
         data = np.asarray(img, dtype=np.float64)
-        img = Image.fromarray((data / max(data.max(), 1) * 255).astype(np.uint8))
+        full_range = 65535.0 if data.max() > 255 else 255.0
+        img = Image.fromarray(np.clip(data / full_range * 255 + 0.5, 0, 255).astype(np.uint8))
 
     if icc and img.mode in ("RGB", "RGBA", "CMYK", "L"):
         try:
@@ -129,6 +152,27 @@ def save_preview(before, after, path, height=1200):
     draw.text((gap, 18), "Before", fill=(40, 40, 40), font=font)
     draw.text((gap * 2 + left.width, 18), "After (A4)", fill=(40, 40, 40), font=font)
     canvas.save(path, "JPEG", quality=90, icc_profile=SRGB_ICC)
+
+
+def save_grid(arr, path, steps=10):
+    """Save the image with grid lines every 10%, labeled in pixels and
+    percent, to help pick --remove coordinates."""
+    img = Image.fromarray(arr if arr.ndim == 3 else np.stack([arr] * 3, axis=-1)).convert("RGBA")
+    w, h = img.size
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = _font(max(12, min(w, h) // 45))
+    line = max(1, min(w, h) // 600)
+    for i in range(1, steps):
+        x, y = round(w * i / steps), round(h * i / steps)
+        draw.line([(x, 0), (x, h)], fill=(255, 0, 180, 170), width=line)
+        draw.line([(0, y), (w, y)], fill=(255, 0, 180, 170), width=line)
+        pct = f"{i * 100 // steps}%"
+        for text, pos in ((f"x={x} ({pct})", (x + 4, 4)), (f"y={y} ({pct})", (4, y + 4))):
+            box = draw.textbbox(pos, text, font=font)
+            draw.rectangle(box, fill=(0, 0, 0, 160))
+            draw.text(pos, text, fill=(255, 255, 255, 255), font=font)
+    Image.alpha_composite(img, overlay).convert("RGB").save(path, "JPEG", quality=90)
 
 
 def _font(size):

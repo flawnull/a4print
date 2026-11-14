@@ -1,5 +1,7 @@
 # a4print
 
+[![tests](https://github.com/flawnull/a4print/actions/workflows/tests.yml/badge.svg)](https://github.com/flawnull/a4print/actions/workflows/tests.yml)
+
 Prepare any image (a photo, a poster, a Pinterest download) for borderless printing on A4 paper with a home printer.
 
 For each image, a4print writes:
@@ -100,10 +102,16 @@ Strip a white or beige margin a Pinterest pin came with, then fill the page:
 a4print pin.jpg --trim-border
 ```
 
-Remove a date stamp and a credit line. Coordinates are `x,y,width,height` in pixels of the original image (any image viewer shows the cursor position):
+Remove a date stamp and a credit line. Each region is `x,y,width,height`, in pixels of the original image or in percent. To find the numbers, save a copy with a labeled grid first:
 
 ```bash
-a4print old.jpg --remove 1820,1300,260,60 --remove 20,20,300,40
+a4print old.jpg --grid
+```
+
+Then read the coordinates off `old_grid.jpg`:
+
+```bash
+a4print old.jpg --remove 1820,1300,260,60 --remove 2%,2%,25%,4%
 ```
 
 Your printer can't print borderless? Keep a 5 mm white margin so nothing gets cut or rescaled:
@@ -160,7 +168,8 @@ holiday.jpg
 | `--margin MM` | `0` | White margin around the image, for printers without borderless printing |
 | `--trim-border` | off | Remove plain outer margins before fitting |
 | `--trim-tolerance N` | `18` | How far (0-255) a margin pixel may differ from the margin color |
-| `--remove x,y,w,h` | none | Erase a rectangle by inpainting. Repeatable |
+| `--remove x,y,w,h` | none | Erase a rectangle by inpainting, in pixels or percent. Repeatable |
+| `--grid` | off | Only save `name_grid.jpg`, the image with labeled coordinates |
 | `--denoise S` | `1.0` | Noise and JPEG artifact cleanup strength. `0` turns it off. Runs only when needed |
 | `--sharpen S` | `0.5` | Unsharp mask amount. `0` turns it off |
 | `--sharpen-radius PX` | `2.0` | Unsharp mask radius in output pixels |
@@ -188,10 +197,10 @@ In order:
 2. Inpaints `--remove` regions with OpenCV (Telea method).
 3. Trims plain margins if `--trim-border` is set. The margin color is the median of the outermost pixel ring, so white, beige and any flat color work.
 4. Detects black-and-white images: 99% of pixels must be near-neutral (Lab chroma under 6) and almost none clearly colored, so a small colored logo keeps the image in color. B&W images are processed as one gray channel and saved with R = G = B, so a slight tint in the file can't turn into a color cast on paper.
-5. Cleans up, only when needed, before scaling so problems aren't enlarged:
+5. Cleans up, only when needed. Small images are cleaned before enlarging, so problems aren't enlarged. Large images are shrunk first, which is faster and already hides most noise.
    - Sensor noise, measured in the flat half of the image (Immerkaer's method with edges excluded, after Tai & Yang 2008), so texture like hair or fabric isn't mistaken for noise. 30% of the original grain is blended back, so photos don't get a plastic look.
    - JPEG artifacts in heavily compressed files (quality under 80, typical for Pinterest and social media). The quality is read from the file's quantization tables, as ImageMagick does.
-6. Crops or scales with Lanczos. With `--ai`, images that need enlarging go through Real-ESRGAN 4x, then Lanczos to the exact size, mixed with a plain resize per `--ai-strength`.
+6. Crops or scales with Lanczos. With `--ai`, images under 240 DPI on paper go through Real-ESRGAN 4x, then Lanczos to the exact size, mixed with a plain resize per `--ai-strength`. Sharper images skip the AI, since it would add minutes for no visible gain.
 7. Adds the white border (`fit`), the blurred extension (`extend`) and the `--margin`, if any.
 8. Applies a gentle unsharp mask and a shadow and midtone lift to luminance only (Lab L channel). Hue and saturation are left alone. Home inkjets print shadows darker than screens show them, which is what the lift compensates for.
 
@@ -225,6 +234,10 @@ A poster on a wall is usually seen from a meter or more away, so "fine from a di
 - In the print dialog, choose "Actual size" or 100% scale, not "Fit to page".
 - Pick borderless printing if your printer supports it. If it doesn't, use `--margin 5` so the printer doesn't crop or shrink the page itself.
 - Choose photo paper and the matching paper type in the driver, which matters more than any setting here.
+
+## Folders
+
+a4print processes every image directly inside a folder (not subfolders). Files it wrote itself (`_a4`, `_preview`, `_grid`) are skipped, so running it twice is safe. If two inputs share a name, such as `photo.jpg` and `photo.png`, the outputs keep the extension (`photo_jpg_a4.png`, `photo_png_a4.png`) so nothing is overwritten.
 
 ## Development
 
