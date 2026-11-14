@@ -20,6 +20,8 @@ You need Python 3.10 or newer. The simplest way is [pipx](https://pipx.pypa.io),
 pipx install "a4print[heic] @ git+https://github.com/flawnull/a4print"
 ```
 
+Don't have pipx? On a Mac with [Homebrew](https://brew.sh), run `brew install pipx` and then `pipx ensurepath`. Elsewhere, run `python3 -m pip install --user pipx` and then `python3 -m pipx ensurepath`. Open a new terminal window afterwards. Check `python3 --version` first: macOS's built-in Python can be 3.9, which is too old; Homebrew or [python.org](https://www.python.org/downloads/) gives you a current one.
+
 This gives you the `a4print` and `a4print-web` commands. The `[heic]` part adds iPhone photo (HEIC) support; leave it out if you don't need it. To update later, run `pipx upgrade a4print`.
 
 Without pipx, plain pip works too, ideally inside a virtual environment:
