@@ -47,17 +47,11 @@ New to pipx, or want AI upscaling? See the [install guide](docs/guide.md#install
 
 ## Web app
 
-<img src="docs/images/web.jpg" alt="The a4print web page: print size choices, AI options, and a before/after slider of a portrait at print size" width="560" align="right">
+`a4print-web` opens a small page in your browser. Choose images, pick an A4 page or a poster, and click once. Each result says in plain words how sharp the print will be, and a slider compares 5 x 5 cm of the print at actual size: plain enlargement against a4print, centered on a face when there is one.
 
-`a4print-web` opens a small page in your browser. Choose images, pick an A4 page or a poster, and click once.
+![The a4print web page: image, print size and AI options on the left; a result with its verdict and a before/after slider on the right](docs/images/web.jpg)
 
-Each result says in plain words how sharp the print will be and what was done. A slider compares 5 x 5 cm of the print at actual size: a plain enlargement against a4print's result, centered on a face when there is one.
-
-AI setup is a button on the same page: it downloads the official builds, checks their checksums and tests them.
-
-Batches download as one PDF. Uploads stay on your machine and are deleted when you stop the server.
-
-<br clear="right"/>
+AI setup is a button on the same page that downloads the official builds, checks their checksums and tests them. Batches download as one PDF. Uploads stay on your machine and are deleted when you stop the server.
 
 ## Posters
 

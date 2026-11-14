@@ -564,7 +564,8 @@ const VERDICTS = {
 
 function showAI(status) {
   $("ai-on").hidden = !status.ai;
-  $("ai-setup").hidden = status.ai || !status.ai_installable;
+  // With maximum quality set up, the basic AI setup isn't needed.
+  $("ai-setup").hidden = status.ai || !status.ai_installable || status.max;
   $("ai-box").hidden = !status.ai && !status.ai_installable && !status.max_libs;
   $("max-on").hidden = !status.max;
   $("max-setup").hidden = status.max || !status.max_libs;
