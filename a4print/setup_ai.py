@@ -130,8 +130,56 @@ def self_test():
     return "" if out.shape[:2] == (64, 64) else "unexpected output size"
 
 
+def setup_max_quality():
+    """a4print-setup-ai --max: download the PyTorch models and test them."""
+    from . import maxq
+
+    if not maxq.libraries_available():
+        print(f"error: {maxq.INSTALL_HINT}", file=sys.stderr)
+        return 1
+    total = sum(m.size for m in maxq.MODELS.values()) / 1e6
+    print(f"Downloading the maximum quality models ({total:.0f} MB)...")
+
+    def progress(done, size):
+        if size:
+            print(f"\r  {done * 100 // size:3d}%", end="\n" if done >= size else "", flush=True)
+
+    try:
+        maxq.install_models(progress)
+    except SetupError as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 1
+    print(f"\nInstalled in {maxq.models_dir()}. Checking that they run...", flush=True)
+    problem = max_self_test()
+    if problem:
+        print(f"error: the models are installed but didn't run: {problem}", file=sys.stderr)
+        return 1
+    print(f"Maximum quality is ready (running on: {maxq.device().type}). "
+          "Use --max-quality, or tick it on the a4print-web page.")
+    print("Credits: " + "; ".join(m.credit for m in maxq.MODELS.values()))
+    return 0
+
+
+def max_self_test():
+    import numpy as np
+
+    from . import maxq
+
+    try:
+        for kind in maxq.MODELS:
+            out = maxq.upscale_x4(np.full((16, 16, 3), 128, np.uint8), kind)
+            if out.shape[:2] != (64, 64):
+                return "unexpected output size"
+    except Exception as exc:  # report any failure in plain words
+        return str(exc).strip() or exc.__class__.__name__
+    return ""
+
+
 def main(argv=None):
-    if installed_binary() and "--force" not in (argv or sys.argv[1:]):
+    args = argv if argv is not None else sys.argv[1:]
+    if "--max" in args:
+        return setup_max_quality()
+    if installed_binary() and "--force" not in args:
         print(f"Real-ESRGAN is already installed in {install_dir()}")
     else:
         if not supported():

@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pikepdf
 
-from . import calibrate, cli, files, setup_ai, upscale
+from . import calibrate, cli, files, maxq, setup_ai, upscale
 from .pipeline import process_file
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
@@ -39,7 +39,8 @@ VALUE_FLAGS = {
     "poster": "--poster", "margin": "--margin", "overlap": "--overlap",
     "ai_strength": "--ai-strength",
 }
-SWITCH_FLAGS = {"trim_border": "--trim-border", "no_enhance": "--no-enhance", "ai": "--ai"}
+SWITCH_FLAGS = {"trim_border": "--trim-border", "no_enhance": "--no-enhance", "ai": "--ai",
+                "max_quality": "--max-quality"}
 
 CONTENT_TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg"}
 
@@ -92,7 +93,22 @@ class App:
 
     def status(self):
         return {"ai": self.ai_available, "ai_installable": setup_ai.supported(),
+                "max": maxq.available(), "max_libs": maxq.libraries_available(),
                 "print_settings": calibrate.load_settings()}
+
+    def setup_max(self):
+        """Download the maximum quality models (PyTorch must be installed)."""
+        if not maxq.libraries_available():
+            return HTTPStatus.BAD_REQUEST, {**self.status(), "error": maxq.INSTALL_HINT}
+        with self.lock:
+            try:
+                maxq.install_models()
+            except setup_ai.SetupError as exc:
+                return HTTPStatus.BAD_GATEWAY, {**self.status(), "error": str(exc)}
+            problem = setup_ai.max_self_test()
+            if problem:
+                return HTTPStatus.INTERNAL_SERVER_ERROR, {**self.status(), "error": f"didn't run: {problem}"}
+        return HTTPStatus.OK, self.status()
 
     def save_print_settings(self, query):
         try:
@@ -133,7 +149,9 @@ class App:
         opts, error = parse_options(build_argv(upload, job_dir, query))
         if error:
             return HTTPStatus.BAD_REQUEST, {"error": error}
-        if opts.ai and not self.ai_available:
+        if opts.max_quality and not maxq.available():
+            return HTTPStatus.BAD_REQUEST, {"error": "maximum quality isn't set up on this computer"}
+        if opts.ai and not opts.max_quality and not self.ai_available:
             return HTTPStatus.BAD_REQUEST, {"error": "Real-ESRGAN isn't installed on this computer"}
 
         with self.lock:
@@ -150,10 +168,11 @@ class App:
             "quality": report.quality.split(":")[0].split(",")[0],
             "dpi": round(report.effective_dpi),
             "low": report.effective_dpi < opts.min_dpi,
-            "ai_used": "Real-ESRGAN" in report.resize_method,
-            "ai_note": ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
-                       + ("; small text kept as is" if "small text" in report.resize_method else "")
-                       if "Real-ESRGAN" in report.resize_method else "",
+            "ai_used": bool(report.content) and "skipped" not in report.resize_method,
+            "ai_note": (("maximum quality, " if opts.max_quality else "")
+                        + ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
+                        + ("; small text kept as is" if "small text" in report.resize_method else ""))
+                       if report.content and "skipped" not in report.resize_method else "",
             "fill": report.fill_reason or report.fill,
             "poster": (f"{report.poster.cols}x{report.poster.rows} sheets, "
                        f"{report.poster.poster_mm[0] / 10:.0f} x {report.poster.poster_mm[1] / 10:.0f} cm")
@@ -264,11 +283,15 @@ def make_handler(app):
             url = urlparse(self.path)
             # Other websites can't set this header without a CORS preflight,
             # which this server never approves, so they can't post here.
-            if url.path not in ("/process", "/setup-ai", "/settings") or self.headers.get("X-A4print") != "1":
+            if url.path not in ("/process", "/setup-ai", "/setup-max", "/settings") \
+                    or self.headers.get("X-A4print") != "1":
                 self.send_error(HTTPStatus.FORBIDDEN)
                 return
             if url.path == "/setup-ai":
                 self._json(*app.setup_ai())
+                return
+            if url.path == "/setup-max":
+                self._json(*app.setup_max())
                 return
             if url.path == "/settings":
                 self._json(*app.save_print_settings(parse_qs(url.query)))
@@ -415,7 +438,10 @@ PAGE = r"""<!doctype html>
     <div class="ai" id="ai-box">
       <label id="ai-on" hidden><input type="checkbox" name="ai"> Sharpen with AI</label>
       <button type="button" class="secondary" id="ai-setup" hidden>Set up AI sharpening</button>
+      <label id="max-on" hidden><input type="checkbox" name="max_quality"> Maximum quality</label>
+      <button type="button" class="secondary" id="max-setup" hidden>Set up maximum quality</button>
       <small id="ai-note">Makes small images (like Pinterest downloads) print noticeably sharper.</small>
+      <small id="max-note" hidden></small>
     </div>
 
     <details>
@@ -495,7 +521,15 @@ const VERDICTS = {
 function showAI(status) {
   $("ai-on").hidden = !status.ai;
   $("ai-setup").hidden = status.ai || !status.ai_installable;
-  $("ai-box").hidden = !status.ai && !status.ai_installable;
+  $("ai-box").hidden = !status.ai && !status.ai_installable && !status.max_libs;
+  $("max-on").hidden = !status.max;
+  $("max-setup").hidden = status.max || !status.max_libs;
+  const maxNote = $("max-note");
+  maxNote.hidden = false;
+  maxNote.textContent = status.max
+    ? "Maximum quality uses newer AI models: one trained on web photos for photos, Real-ESRGAN for artwork. Slower without a graphics chip."
+    : status.max_libs ? "Maximum quality: a one-time 100 MB download of two newer AI models."
+    : "Maximum quality (newer AI models) needs PyTorch. To add it, run: pipx inject a4print torch spandrel";
   if (status.ai) $("ai-note").textContent =
     "Makes small images print sharper. Used only when an image needs it; the preview shows a detail at print size.";
 }
@@ -517,6 +551,21 @@ fetch("/status").then(r => r.json()).then(s => {
   showSettings(s);
   // AI is on by default once installed; it skips images that are already sharp.
   if (s.ai) $("ai-on").querySelector("input").checked = true;
+});
+
+$("max-setup").addEventListener("click", async () => {
+  const btn = $("max-setup");
+  btn.disabled = true; btn.textContent = "Downloading (about 100 MB)...";
+  try {
+    const r = await fetch("/setup-max", {method: "POST", headers: {"X-A4print": "1"}});
+    const s = await r.json();
+    if (!r.ok) throw new Error(s.error || "setup failed");
+    showAI(s);
+    $("max-on").querySelector("input").checked = true;
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Try maximum quality setup again";
+    $("max-note").textContent = "Setup didn't work: " + e.message;
+  }
 });
 
 $("ai-setup").addEventListener("click", async () => {
@@ -583,7 +632,7 @@ go.addEventListener("click", async () => {
   if ($("poster-more").value) params.set("poster", $("poster-more").value);
   for (const file of chosen) {
     const box = el("div", {class: "result"});
-    const aiChecked = params.get("ai") === "on";
+    const aiChecked = params.get("ai") === "on" || params.get("max_quality") === "on";
     box.append(el("h2", {}, file.name), el("p", {class: "what"},
       aiChecked ? "Working... AI sharpening can take a while." : "Working..."));
     results.prepend(box);

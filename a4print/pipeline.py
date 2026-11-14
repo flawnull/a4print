@@ -38,6 +38,7 @@ class Options:
     ai: bool = False
     ai_model: str = "realesrgan-x4plus"
     ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0
+    max_quality: bool = False      # newer PyTorch models (maxq); implies AI
     min_dpi: float = 150
     poster: tuple = None           # (columns, rows) of A4 sheets, or None for one page
     overlap: float = 10.0          # mm shared by neighboring poster sheets
@@ -133,7 +134,8 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     report.quality = layout.print_quality(report.effective_dpi)
 
     if report.effective_dpi < opts.min_dpi:
-        hint = "use a larger version of the image if you can" + ("" if opts.ai else ", or try AI upscaling (--ai)")
+        hint = "use a larger version of the image if you can" + (
+            "" if (opts.ai or opts.max_quality) else ", or try AI upscaling (--ai)")
         report.warnings.append(f"below {opts.min_dpi:.0f} DPI: {hint}")
 
     # Clean noise and JPEG artifacts, and scale. When enlarging, clean first
@@ -141,7 +143,8 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     # and shrinking already hides most noise. JPEG blocks shrunk below half
     # size are invisible, so they're left alone.
     scale = out_size[0] / arr.shape[1]
-    use_ai = opts.ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
+    wants_ai = opts.ai or opts.max_quality
+    use_ai = wants_ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
     if scale >= 1:
         if opts.enhance:
             arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
@@ -157,13 +160,14 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
                 protect = enhance.tiny_text_mask(arr)
                 if protect.any():
                     label = ", ".join(filter(None, [label, "small text kept as is"]))
-        arr, report.resize_method = upscale.resize(arr, out_size, use_ai, opts.ai_model,
-                                                   1.0 if strength is None else strength, label, protect)
+        arr, report.resize_method = upscale.resize(
+            arr, out_size, use_ai, opts.ai_model, 1.0 if strength is None else strength, label, protect,
+            max_quality=report.content if (use_ai and opts.max_quality) else None)
     else:
         arr, report.resize_method = upscale.resize(arr, out_size)
         if opts.enhance:
             arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality if scale >= 0.5 else None)
-    if opts.ai and not use_ai:
+    if wants_ai and not use_ai:
         report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 
     # Fill the rest of the area.

@@ -84,6 +84,9 @@ def build_parser():
 
     g = p.add_argument_group("upscaling")
     g.add_argument("--ai", action="store_true", help="upscale with Real-ESRGAN (realesrgan-ncnn-vulkan)")
+    g.add_argument("--max-quality", action="store_true",
+                   help="AI upscaling with newer models via PyTorch: a web-photo model for photos, "
+                        "Real-ESRGAN for artwork (setup: a4print-setup-ai --max)")
     g.add_argument("--ai-model", default="realesrgan-x4plus", help="Real-ESRGAN model (default: %(default)s)")
     g.add_argument("--ai-strength", type=float, default=None, metavar="S",
                    help="0-1 mix of the AI result with a plain resize (default: 1.0; tones and "
@@ -105,7 +108,7 @@ def options_from_args(args):
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
         shadows=args.shadows, midtones=args.midtones,
-        ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength,
+        ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength, max_quality=args.max_quality,
         poster=args.poster, overlap=args.overlap, min_dpi=args.min_dpi,
         pdf=not args.no_pdf, preview=not args.no_preview,
     )
@@ -153,7 +156,17 @@ def main(argv=None):
         print(f"error: no images found in {source}", file=sys.stderr)
         return 2
 
-    if opts.ai:
+    if opts.max_quality:
+        from . import maxq
+
+        if not maxq.libraries_available():
+            print(f"error: {maxq.INSTALL_HINT}", file=sys.stderr)
+            return 3
+        if not maxq.models_installed():
+            print("error: the maximum quality models aren't downloaded yet; run: a4print-setup-ai --max",
+                  file=sys.stderr)
+            return 3
+    elif opts.ai:
         try:
             upscale.find_realesrgan()
         except upscale.UpscalerMissing as exc:
@@ -178,8 +191,9 @@ def main(argv=None):
     pages = []
     for path in images:
         print(f"{path.name}", flush=True)
-        if opts.ai:
-            print("  upscaling   Real-ESRGAN running (seconds on a GPU, minutes on CPU)", flush=True)
+        if opts.ai or opts.max_quality:
+            engine = "maximum quality AI" if opts.max_quality else "Real-ESRGAN"
+            print(f"  upscaling   {engine} running (seconds on a GPU, minutes on CPU)", flush=True)
         try:
             r, pdf_pages = process_file(path, args.output_dir, opts, names[path])
         except Exception as exc:  # Keep going through a folder.

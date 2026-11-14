@@ -26,3 +26,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+
+## AI models downloaded at setup
+
+a4print doesn't include these files. `a4print-setup-ai` and `a4print-setup-ai --max` download them from their authors' GitHub releases when you ask for them.
+
+- **Real-ESRGAN** (realesrgan-ncnn-vulkan program and the RealESRGAN_x4plus model), by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan. BSD-3-Clause license. https://github.com/xinntao/Real-ESRGAN
+- **4xNomosWebPhoto_esrgan**, by Philip Hofmann. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/. Used unmodified. https://github.com/Phhofm/models/releases/tag/4xNomosWebPhoto_esrgan
+- **spandrel**, the library that loads the models, by the chaiNNer Organization. MIT license. https://github.com/chaiNNer-org/spandrel

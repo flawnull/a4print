@@ -60,6 +60,38 @@ Speed depends on your hardware. With a graphics chip (any recent Mac, or a PC wi
 
 If you already have Real-ESRGAN somewhere else, a4print also finds it on your `PATH` or through `A4PRINT_REALESRGAN=/path/to/realesrgan-ncnn-vulkan`.
 
+### Optional: maximum quality
+
+`--max-quality` uses newer AI models run with [PyTorch](https://pytorch.org), picked per image:
+
+- **Photos**: [4xNomosWebPhoto_esrgan](https://github.com/Phhofm/models) by Philip Hofmann, trained on web photos with JPEG and WebP compression, blur and noise.
+- **Artwork and graphics**: Real-ESRGAN x4plus, which still draws the crispest edges and lettering.
+
+Set it up once:
+
+```bash
+pipx inject a4print torch spandrel
+```
+
+```bash
+a4print-setup-ai --max
+```
+
+The first command adds PyTorch (about 100 MB on a Mac, more on Linux and Windows). The second downloads the two models (about 100 MB), checks their checksums, and runs a quick test. Without pipx, use `pip install torch spandrel` instead of the first command. On a Mac with Apple Silicon, PyTorch runs on the graphics chip.
+
+How the models were chosen: five candidates were run on a photo of a cat, a portrait and a poster-style graphic, each through a4print's merge, and compared on edge sharpness and by eye.
+
+| Model | Cat (fur) | Portrait | Graphic |
+|---|---|---|---|
+| Real-ESRGAN x4plus (`--ai`) | 210 | 212 | **444** |
+| **4xNomosWebPhoto_esrgan** | **266** | **211**, more natural skin | 431 |
+| 4xNomosWebPhoto_RealPLKSR | 218 | 184 | 428 |
+| 4xRealWebPhoto_v4_dat2 | 164 | 171 | 409 |
+| 4xNomosWebPhoto_atd | 209 | 174 | 434 |
+| SwinIR-L (real-world GAN) | 195 | 186, glossy skin | 422 |
+
+Newer designs weren't automatically better: the transformer models (DAT2, ATD, SwinIR) were softer and 3-5 times slower. The gain over `--ai` is real but moderate: crisper hair and fur and more natural skin on photos, and the same result on artwork.
+
 ## In your browser
 
 Prefer not to use the terminal? Start the web page:

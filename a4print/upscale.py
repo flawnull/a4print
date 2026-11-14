@@ -116,13 +116,14 @@ def _protect_areas(result, plain, protect, scale):
     result[oy0:oy1, ox0:ox1] = np.clip(a + keep_plain * (b - a) + 0.5, 0, 255).astype(np.uint8)
 
 
-def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, label="", protect=None):
+def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, label="", protect=None,
+           max_quality=None):
     """Resize to `size` (w, h). With ai=True, enlargements go through Real-ESRGAN
     first and Lanczos takes the result to the exact size.
 
-    `ai_strength` mixes the AI result with a plain Lanczos resize. Full
-    strength gives skin a waxy, airbrushed look; 0.7 keeps the sharp edges
-    and brings back natural texture. Use 1.0 for illustrations.
+    `ai_strength` mixes the result with a plain Lanczos resize (see
+    merge_ai). `max_quality` ("photo" or "artwork") uses the maximum quality
+    models (maxq) for that kind of image instead of Real-ESRGAN.
 
     Returns (array, method_used).
     """
@@ -131,8 +132,15 @@ def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, l
     if ai and enlarging:
         strength = min(max(ai_strength, 0.0), 1.0)
         plain = lanczos(arr, size)
-        result = merge_ai(plain, lanczos(realesrgan_x4(arr, ai_model), size), size[0] / w, strength)
+        if max_quality:
+            from . import maxq
+
+            x4 = maxq.upscale_x4(arr, max_quality)
+            name = "maximum quality: " + ("WebPhoto ESRGAN" if max_quality == "photo" else "Real-ESRGAN")
+        else:
+            x4, name = realesrgan_x4(arr, ai_model), "Real-ESRGAN"
+        result = merge_ai(plain, lanczos(x4, size), size[0] / w, strength)
         if protect is not None and protect.any():
             _protect_areas(result, plain, protect, size[0] / w)
-        return result, f"Real-ESRGAN ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
+        return result, f"{name} ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
     return lanczos(arr, size), "Lanczos"
