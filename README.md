@@ -126,6 +126,12 @@ Prepare a folder and get one PDF with every page, ready to print in one go:
 a4print ~/Downloads/posters --combine
 ```
 
+Print a poster bigger than A4, split over several sheets (see "Posters" below):
+
+```bash
+a4print poster.jpg --poster 2x2
+```
+
 Upscale a small image with Real-ESRGAN:
 
 ```bash
@@ -165,7 +171,9 @@ holiday.jpg
 | `--orientation auto\|portrait\|landscape` | `auto` | Auto picks landscape for wide images, portrait otherwise |
 | `--fill crop\|extend\|fit` | `crop` | See "Fill modes" below |
 | `--anchor center\|top\|bottom\|left\|right` | `center` | Which part to keep when cropping |
-| `--margin MM` | `0` | White margin around the image, for printers without borderless printing |
+| `--margin MM` | `0`, posters `6` | White margin around the image, for printers without borderless printing |
+| `--poster COLSxROWS` | off | Split into a poster of several A4 sheets, e.g. `2x2` or `3x3` |
+| `--overlap MM` | `10` | How much neighboring poster sheets overlap, for gluing |
 | `--trim-border` | off | Remove plain outer margins before fitting |
 | `--trim-tolerance N` | `18` | How far (0-255) a margin pixel may differ from the margin color |
 | `--remove x,y,w,h` | none | Erase a rectangle by inpainting, in pixels or percent. Repeatable |
@@ -207,6 +215,37 @@ In order:
 a4print does nothing else. It doesn't retouch faces, change colors, or recompose the image.
 
 The PDF stores the page as a quality-95 JPEG with no chroma subsampling. That keeps it to a few MB; the PNG is the lossless copy.
+
+## Posters
+
+`--poster` makes a poster bigger than A4 and splits it over sheets you print at home, then trim and glue together.
+
+| Sheets | Finished size (landscape) |
+|---|---|
+| `2x2` | 56 x 39 cm, about A2 |
+| `3x2` | 84 x 39 cm, a long banner |
+| `3x3` | 84 x 57 cm, about A1 |
+| `4x4` | 111 x 76 cm |
+
+a4print picks portrait or landscape sheets, whichever gives a poster shape closest to the image's, so the least gets cropped. `--orientation` sets the direction of the whole poster. `--fill`, `--anchor`, the cleanup and `--ai` all work as for single pages.
+
+It writes `name_poster.pdf`, one A4 page per sheet, and `name_poster_preview.jpg`, which shows the sheet grid over the image.
+
+Each sheet has:
+
+- **A white margin** (6 mm by default, change it with `--margin`). Home printers can't print to the edge, so this keeps the image off the part they'd cut or shrink.
+- **A label** in the bottom margin, like `B2 (row 2, column 2 of 3x3)`, saying which margins to cut off. Rows run A, B, C from the top; columns 1, 2, 3 from the left.
+- **A dashed guide line** inside the overlap strip on its right and bottom, where the next sheet's edge goes.
+- **Cut marks** in the margin at the image edges you trim.
+
+To assemble:
+
+1. Print the PDF at 100% scale ("Actual size"), not "Fit to page".
+2. Lay the sheets out in order, A1 at top left.
+3. On every sheet except A1, cut off the margins its label names (left, top or both), along the cut marks.
+4. Working row by row from A1, glue each sheet over its neighbor so its cut edge sits on the dashed line. The overlap hides the line.
+
+The resolution line reports DPI on the finished poster, which is lower than on one A4 page. A poster is usually seen from further away, so 100 DPI or more looks fine on a wall. Very large posters (over 75 megapixels, like 4x4 and up) are rendered at a lower DPI and each sheet is scaled up to 300 DPI when cut out, which keeps memory use reasonable.
 
 ## AI upscaling
 

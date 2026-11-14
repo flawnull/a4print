@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, files, upscale
+from . import __version__, files, poster, upscale
 from .layout import ANCHORS
 from .pipeline import Options, process_file
 
@@ -25,6 +25,13 @@ def region(text):
     return tuple(values)
 
 
+def grid(text):
+    try:
+        return poster.parse_grid(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc))
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="a4print",
@@ -41,11 +48,18 @@ def build_parser():
                    help="crop: fill the page and cut overflow (default); extend: fit and fill the "
                         "rest with mirrored, blurred edges; fit: fit inside a white border")
     g.add_argument("--anchor", choices=ANCHORS, default="center", help="which part to keep when cropping")
-    g.add_argument("--margin", type=float, default=0.0, metavar="MM",
-                   help="white margin in mm, for printers that can't print borderless (default: 0)")
+    g.add_argument("--margin", type=float, default=None, metavar="MM",
+                   help="white margin in mm, for printers that can't print borderless "
+                        "(default: 0, or 6 for posters)")
     g.add_argument("--trim-border", action="store_true", help="remove plain outer margins first")
     g.add_argument("--trim-tolerance", type=int, default=18, metavar="N",
                    help="how far (0-255) a pixel may differ from the margin color (default: %(default)s)")
+
+    g = p.add_argument_group("poster")
+    g.add_argument("--poster", type=grid, metavar="COLSxROWS",
+                   help="split into a poster of several A4 sheets, e.g. 2x2 (about A2) or 3x3 (about A1)")
+    g.add_argument("--overlap", type=float, default=10.0, metavar="MM",
+                   help="how much neighboring poster sheets overlap, for gluing (default: %(default)s)")
 
     g = p.add_argument_group("cleanup")
     g.add_argument("--remove", type=region, action="append", default=[], metavar="x,y,w,h",
@@ -88,7 +102,8 @@ def options_from_args(args):
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
         shadows=args.shadows, midtones=args.midtones,
-        ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength, min_dpi=args.min_dpi,
+        ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength,
+        poster=args.poster, overlap=args.overlap, min_dpi=args.min_dpi,
         pdf=not args.no_pdf, preview=not args.no_preview,
     )
 
@@ -113,8 +128,8 @@ def main(argv=None):
             print(f"error: {exc}", file=sys.stderr)
             return 3
 
-    if args.margin < 0:
-        print("error: --margin can't be negative", file=sys.stderr)
+    if (args.margin is not None and args.margin < 0) or args.overlap < 0:
+        print("error: --margin and --overlap can't be negative", file=sys.stderr)
         return 2
 
     names = files.output_names(images)
@@ -134,7 +149,7 @@ def main(argv=None):
         if opts.ai:
             print("  upscaling   Real-ESRGAN running (seconds on a GPU, minutes on CPU)", flush=True)
         try:
-            r, pdf_page = process_file(path, args.output_dir, opts, names[path])
+            r, pdf_pages = process_file(path, args.output_dir, opts, names[path])
         except Exception as exc:  # Keep going through a folder.
             failures += 1
             print(f"  error: {exc}", file=sys.stderr)
@@ -144,15 +159,23 @@ def main(argv=None):
         if r.trimmed:
             x0, y0, x1, y1 = r.trimmed
             print(f"  trimmed     to {x1 - x0} x {y1 - y0} px")
-        print(f"  page        A4 {r.orientation}, {opts.fill}, {r.resize_method}")
-        print(f"  resolution  {r.effective_dpi:.0f} DPI at A4, {r.quality}")
+        if r.poster:
+            p = r.poster
+            size = f"{p.poster_mm[0] / 10:.0f} x {p.poster_mm[1] / 10:.0f} cm"
+            print(f"  poster      {p.cols}x{p.rows} {p.sheet_orientation} A4 sheets, {size}"
+                  f"{', ' + p.size_name if p.size_name else ''}")
+            print(f"  page        {opts.fill}, {r.resize_method}")
+            print(f"  resolution  {r.effective_dpi:.0f} DPI on the poster, {r.quality}")
+        else:
+            print(f"  page        A4 {r.orientation}, {opts.fill}, {r.resize_method}")
+            print(f"  resolution  {r.effective_dpi:.0f} DPI at A4, {r.quality}")
         if opts.enhance:
             print(f"  cleanup     {'applied (' + r.cleanup + ')' if r.cleanup else 'not needed'}")
         for warning in r.warnings:
             print(f"  warning     {warning}")
         for out in r.outputs:
             print(f"  saved       {out}")
-        pages.append(pdf_page)
+        pages.extend(pdf_pages)
 
     if args.combine and pages:
         combined = Path(args.output_dir) / "a4print_all.pdf"

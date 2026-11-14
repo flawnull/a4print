@@ -1,10 +1,15 @@
-"""The processing steps, in order. `prepare` does the image work; `process_file`
-adds loading and saving."""
+"""The processing steps, in order.
+
+`clean_source` erases regions, trims margins and detects B&W. `render`
+scales and tunes the image for a printed area of a given size. `prepare`
+combines them for one A4 page; `process_file` adds loading and saving, for
+a single page or a poster split over several sheets.
+"""
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import enhance, files, layout, upscale
+from . import enhance, files, layout, poster, upscale
 
 # Above this, the image is already sharp on paper and Real-ESRGAN adds
 # minutes of work for no visible gain.
@@ -16,7 +21,7 @@ class Options:
     orientation: str = "auto"      # auto | portrait | landscape
     fill: str = "crop"             # crop | extend | fit
     anchor: str = "center"         # crop only
-    margin: float = 0.0            # white margin in mm, for printers without borderless
+    margin: float = None           # white margin in mm; None = 0 for A4, 6 for posters
     trim_border: bool = False
     trim_tolerance: int = 18
     remove: list = field(default_factory=list)   # [(x, y, w, h), ...]
@@ -30,6 +35,8 @@ class Options:
     ai_model: str = "realesrgan-x4plus"
     ai_strength: float = 0.7       # mix of AI result vs plain resize
     min_dpi: float = 150
+    poster: tuple = None           # (columns, rows) of A4 sheets, or None for one page
+    overlap: float = 10.0          # mm shared by neighboring poster sheets
     pdf: bool = True
     preview: bool = True
 
@@ -44,60 +51,54 @@ class Report:
     quality: str = ""
     cleanup: str = ""              # why denoise ran, "" if it didn't
     resize_method: str = ""
+    poster: object = None          # poster.Plan when making a poster
     warnings: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
 
 
-def prepare(arr, opts, jpeg_quality=None):
-    """Turn an sRGB uint8 array into the finished A4 page array. Returns (page, report).
-
-    `jpeg_quality` (from files.jpeg_quality) lets heavily compressed JPEGs
-    get artifact cleanup."""
-    report = Report(source_size=(arr.shape[1], arr.shape[0]))
-
-    # 1. Erase dates, credits, watermarks (coordinates refer to the original).
+def clean_source(arr, opts, report):
+    """Steps that work on the original pixels: erase regions, trim plain
+    margins, detect black and white."""
+    # Erase dates, credits, watermarks (coordinates refer to the original).
     if opts.remove:
         arr = enhance.inpaint_regions(arr, opts.remove)
 
-    # 2. Plain outer margins.
     if opts.trim_border:
         arr, box = layout.trim_border(arr, opts.trim_tolerance)
-        h, w = arr.shape[:2]
-        if (w, h) != report.source_size:
+        if arr.shape[1::-1] != tuple(report.source_size):
             report.trimmed = box
 
-    # 3. Black and white: work in one channel so no color cast can creep in.
+    # Black and white: work in one channel so no color cast can creep in.
     report.grayscale = enhance.is_grayscale(arr)
     if report.grayscale:
         arr = enhance.to_gray(arr)
+    return arr
 
-    # 4. Page size and how the image maps onto it.
+
+def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
+    """Scale, clean and tune `arr` for a printed area of `area` (w, h) pixels
+    at `dpi`. Returns the area-sized array."""
+    area_w, area_h = area
     h, w = arr.shape[:2]
-    report.orientation = layout.choose_orientation(w, h, opts.orientation)
-    page_w, page_h = layout.target_size(report.orientation)
-    margin = layout.mm_to_px(opts.margin)
-    area_w, area_h = page_w - 2 * margin, page_h - 2 * margin
-    if area_w < 100 or area_h < 100:
-        raise ValueError(f"--margin {opts.margin} mm leaves no room on the page")
 
     if opts.fill == "crop":
         x0, y0, x1, y1 = layout.crop_box(w, h, area_w, area_h, opts.anchor)
         arr = arr[y0:y1, x0:x1]
         out_size = (area_w, area_h)
-        report.effective_dpi = layout.effective_dpi(x1 - x0, area_w)
+        report.effective_dpi = layout.effective_dpi(x1 - x0, area_w, dpi)
     else:
         out_size = layout.fit_size(w, h, area_w, area_h)
-        report.effective_dpi = layout.effective_dpi(w, out_size[0])
+        report.effective_dpi = layout.effective_dpi(w, out_size[0], dpi)
     report.quality = layout.print_quality(report.effective_dpi)
 
     if report.effective_dpi < opts.min_dpi:
         hint = "use a larger version of the image if you can" + ("" if opts.ai else ", or try --ai")
         report.warnings.append(f"below {opts.min_dpi:.0f} DPI: {hint}")
 
-    # 5-6. Clean noise and JPEG artifacts, and scale. When enlarging, clean
-    # first so problems aren't enlarged. When shrinking, scale first: it's
-    # faster, and shrinking already hides most noise. JPEG blocks shrunk
-    # below half size are invisible, so they're left alone.
+    # Clean noise and JPEG artifacts, and scale. When enlarging, clean first
+    # so problems aren't enlarged. When shrinking, scale first: it's faster,
+    # and shrinking already hides most noise. JPEG blocks shrunk below half
+    # size are invisible, so they're left alone.
     scale = out_size[0] / arr.shape[1]
     use_ai = opts.ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
     if scale >= 1:
@@ -111,48 +112,95 @@ def prepare(arr, opts, jpeg_quality=None):
     if opts.ai and not use_ai:
         report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 
-    # 7. Fill the rest of the printable area, then add the margin.
+    # Fill the rest of the area.
     if opts.fill == "fit":
         arr = layout.place_on_white(arr, area_w, area_h)
     elif opts.fill == "extend":
         arr = layout.extend_background(arr, area_w, area_h)
+
+    # Print tuning on luminance: gentle sharpening, shadow and midtone lift.
+    # The sharpening radius is set for 300 DPI and scaled to the actual DPI.
+    if opts.enhance:
+        radius = opts.sharpen_radius * dpi / layout.DPI
+        arr = enhance.finish_for_print(arr, opts.sharpen, radius, opts.shadows, opts.midtones)
+    return arr
+
+
+def prepare(arr, opts, jpeg_quality=None):
+    """Turn an sRGB uint8 array into a finished A4 page. Returns (page, report)."""
+    report = Report(source_size=(arr.shape[1], arr.shape[0]))
+    arr = clean_source(arr, opts, report)
+
+    h, w = arr.shape[:2]
+    report.orientation = layout.choose_orientation(w, h, opts.orientation)
+    page_w, page_h = layout.target_size(report.orientation)
+    margin = layout.mm_to_px(opts.margin or 0)
+    area = (page_w - 2 * margin, page_h - 2 * margin)
+    if min(area) < 100:
+        raise ValueError(f"--margin {opts.margin} mm leaves no room on the page")
+
+    arr = render(arr, opts, area, report, jpeg_quality)
     if margin:
         arr = layout.place_on_white(arr, page_w, page_h)
-
-    # 8. Print tuning on luminance: gentle sharpening, shadow and midtone lift.
-    if opts.enhance:
-        arr = enhance.finish_for_print(arr, opts.sharpen, opts.sharpen_radius, opts.shadows, opts.midtones)
-
     return arr, report
+
+
+def prepare_poster(arr, opts, jpeg_quality=None):
+    """Make a poster split over A4 sheets. Returns (sheets, overview, report)
+    where overview is a small picture of the poster with the sheet grid."""
+    report = Report(source_size=(arr.shape[1], arr.shape[0]))
+    arr = clean_source(arr, opts, report)
+
+    h, w = arr.shape[:2]
+    cols, rows = opts.poster
+    margin = 6.0 if opts.margin is None else opts.margin
+    plan = poster.make_plan(w, h, cols, rows, opts.orientation, margin, opts.overlap)
+    report.poster = plan
+    report.orientation = plan.sheet_orientation
+
+    art = render(arr, opts, plan.render_size, report, jpeg_quality, plan.render_dpi)
+    sheets = poster.slice_sheets(art, plan)
+    return sheets, poster.overview(art, plan), report
 
 
 def process_file(path, out_dir, opts, name=None):
     """Load, prepare and save one image. `name` is the base for output file
     names (default: the input's name without extension).
 
-    Returns (report, pdf_page_bytes) so the caller can also build a
-    combined PDF."""
+    Returns (report, pdf_pages): the encoded PDF pages, so the caller can
+    also build a combined PDF."""
     path, out_dir = Path(path), Path(out_dir)
     name = name or path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
 
     original = files.load_rgb(path)
-    page, report = prepare(original, opts, files.jpeg_quality(path))
-    page_img = files.to_rgb_image(page)
+    quality = files.jpeg_quality(path)
 
-    png = out_dir / f"{name}_a4.png"
-    files.save_png(page_img, png)
-    report.outputs.append(png)
-
-    pdf_bytes = files.pdf_page(page_img)
-    if opts.pdf:
-        pdf = out_dir / f"{name}_a4.pdf"
-        files.save_pdf([pdf_bytes], pdf)
+    if opts.poster:
+        sheets, overview, report = prepare_poster(original, opts, quality)
+        after = files.to_rgb_image(overview)
+        pages = [files.pdf_page(files.to_rgb_image(s)) for s in sheets]
+        pdf = out_dir / f"{name}_poster.pdf"
+        files.save_pdf(pages, pdf)
         report.outputs.append(pdf)
+        preview_name = f"{name}_poster_preview.jpg"
+    else:
+        page, report = prepare(original, opts, quality)
+        after = files.to_rgb_image(page)
+        png = out_dir / f"{name}_a4.png"
+        files.save_png(after, png)
+        report.outputs.append(png)
+        pages = [files.pdf_page(after)]
+        if opts.pdf:
+            pdf = out_dir / f"{name}_a4.pdf"
+            files.save_pdf(pages, pdf)
+            report.outputs.append(pdf)
+        preview_name = f"{name}_preview.jpg"
 
     if opts.preview:
-        preview = out_dir / f"{name}_preview.jpg"
-        files.save_preview(files.to_rgb_image(original), page_img, preview)
+        preview = out_dir / preview_name
+        files.save_preview(files.to_rgb_image(original), after, preview,
+                           "After (poster)" if opts.poster else "After (A4)")
         report.outputs.append(preview)
 
-    return report, pdf_bytes
+    return report, pages

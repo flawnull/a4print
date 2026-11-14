@@ -58,9 +58,9 @@ def fit_size(src_w, src_h, tgt_w, tgt_h):
     return min(tgt_w, max(1, round(src_w * scale))), min(tgt_h, max(1, round(src_h * scale)))
 
 
-def effective_dpi(source_px, printed_px):
-    """DPI the source pixels end up at when printed_px pixels cover the page at 300 DPI."""
-    return source_px / (printed_px / DPI)
+def effective_dpi(source_px, printed_px, dpi=DPI):
+    """DPI the source pixels end up at when printed_px pixels are printed at `dpi`."""
+    return source_px / (printed_px / dpi)
 
 
 def _offsets(inner, outer):

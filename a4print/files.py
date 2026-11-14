@@ -134,7 +134,7 @@ def save_pdf(pages, path):
     Path(path).write_bytes(img2pdf.convert(list(pages), layout_fun=layout))
 
 
-def save_preview(before, after, path, height=1200):
+def save_preview(before, after, path, label="After (A4)", height=1200):
     """Side-by-side before/after JPG with labels."""
     gap, label_h = 40, 70
 
@@ -150,7 +150,7 @@ def save_preview(before, after, path, height=1200):
     draw = ImageDraw.Draw(canvas)
     font = _font(36)
     draw.text((gap, 18), "Before", fill=(40, 40, 40), font=font)
-    draw.text((gap * 2 + left.width, 18), "After (A4)", fill=(40, 40, 40), font=font)
+    draw.text((gap * 2 + left.width, 18), label, fill=(40, 40, 40), font=font)
     canvas.save(path, "JPEG", quality=90, icc_profile=SRGB_ICC)
 
 
