@@ -127,7 +127,7 @@ def test_combine_writes_one_pdf_with_mixed_orientations(tmp_path, save, portrait
     out = tmp_path / "out"
     assert cli.main([str(tmp_path), "-o", str(out), "--combine", "--no-preview"]) == 0
     with pikepdf.open(out / "a4print_all.pdf") as pdf:
-        sizes = [tuple(round(float(v) / 72 * 25.4) for v in p.mediabox[2:]) for p in pdf.pages]
+        sizes = [tuple(round(float(p.mediabox[i]) / 72 * 25.4) for i in (2, 3)) for p in pdf.pages]
     assert sizes == [(210, 297), (297, 210)]
 
 

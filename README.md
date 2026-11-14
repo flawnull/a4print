@@ -14,7 +14,7 @@ It also reports the image's effective resolution at A4 and warns when it drops b
 
 ## Install
 
-You need Python 3.9 or newer.
+You need Python 3.10 or newer.
 
 ```bash
 git clone https://github.com/flawnull/a4print.git
