@@ -187,8 +187,9 @@ def save_pdf(pages, path):
         pdf.save(path)
 
 
-def save_preview(before, after, path, label="After (A4)", height=1200):
-    """Side-by-side before/after JPG with labels."""
+def save_preview(before, after, path, label="After (A4)", height=1200, detail=None):
+    """Side-by-side before/after JPG with labels. `detail` is an optional
+    (plain, result) pair of arrays shown below, at print size."""
     gap, label_h = 40, 70
 
     def scaled(img):
@@ -204,6 +205,24 @@ def save_preview(before, after, path, label="After (A4)", height=1200):
     font = _font(36)
     draw.text((gap, 18), "Before", fill=(40, 40, 40), font=font)
     draw.text((gap * 2 + left.width, 18), label, fill=(40, 40, 40), font=font)
+
+    if detail is not None:
+        plain, result = (to_rgb_image(a) for a in detail)
+        tile = min(600, (canvas.width - gap * 3) // 2)
+        plain, result = plain.resize((tile, tile), Image.LANCZOS), result.resize((tile, tile), Image.LANCZOS)
+        cm = detail[0].shape[0] / DPI * 2.54
+        title = f"Detail at print size ({cm:.0f} x {cm:.0f} cm of the print)"
+        row = Image.new("RGB", (canvas.width, tile + label_h * 2 + gap), (235, 235, 235))
+        d = ImageDraw.Draw(row)
+        d.text((gap, 10), title, fill=(40, 40, 40), font=font)
+        d.text((gap, label_h), "Plain enlargement", fill=(90, 90, 90), font=_font(30))
+        d.text((gap * 2 + tile, label_h), "a4print", fill=(90, 90, 90), font=_font(30))
+        row.paste(plain, (gap, label_h * 2 - 10))
+        row.paste(result, (gap * 2 + tile, label_h * 2 - 10))
+        full = Image.new("RGB", (canvas.width, canvas.height + row.height), (235, 235, 235))
+        full.paste(canvas, (0, 0))
+        full.paste(row, (0, canvas.height))
+        canvas = full
     canvas.save(path, "JPEG", quality=90, icc_profile=SRGB_ICC)
 
 

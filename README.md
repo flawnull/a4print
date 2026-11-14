@@ -202,8 +202,8 @@ holiday.jpg
 | `--midtones S` | `0.05` | Midtone lift. `0` turns it off |
 | `--no-enhance` | off | Skip denoise, sharpening and tone lift |
 | `--ai` | off | Upscale with Real-ESRGAN instead of Lanczos |
-| `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name (`realesrgan-x4plus-anime` for drawings) |
-| `--ai-strength S` | `0.7` | Mix of the AI result with a plain resize. See "AI upscaling" |
+| `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name |
+| `--ai-strength S` | auto | Mix of the AI result with a plain resize: 1.0 for artwork, 0.7 for photos. See "AI upscaling" |
 | `--min-dpi N` | `150` | Warn below this effective DPI |
 | `--no-pdf`, `--no-preview` | off | Skip those outputs |
 | `--combine` | off | Also write every page into one PDF, `a4print_all.pdf` |
@@ -270,11 +270,21 @@ The resolution line reports DPI on the finished poster, which is lower than on o
 
 ## AI upscaling
 
-Small images (most Pinterest and social media downloads print at 35-60 DPI on A4) gain the most from `--ai`. Real-ESRGAN draws sharp edges and plausible fine detail such as hair, fur and fabric, where plain resizing gives a blur.
+Small images (most Pinterest and social media downloads print at 35-90 DPI on A4) gain the most from `--ai`. Real-ESRGAN draws sharp edges and plausible fine detail such as hair, fur, fabric and lettering, where plain resizing gives a blur.
 
-At full strength it also smooths skin into a waxy, airbrushed look. By default a4print mixes 70% of the AI result with 30% of a plain resize. That keeps the sharp edges and brings back natural texture. Use `--ai-strength 1` for illustrations and graphics, and 0.5 if a portrait still looks too smooth.
+a4print adjusts it to the image:
+
+- **Artwork and graphics** (posters, illustrations, logos) get the full AI result: crisp edges and clean flat colors. a4print recognizes artwork by its hard, step-like edges and flat areas; photos change gradually across edges even when heavily compressed.
+- **Photos** get 70% AI mixed with 30% plain resize. At full strength the AI smooths skin into a waxy, airbrushed look; the mix keeps the sharp edges and brings back natural texture.
+- **Very small text** in artwork, like a credit line or date a few pixels tall, is left as a plain enlargement. At that size the AI invents letter shapes and "2025" can come out as a different number. The plain version is softer but still says what it said.
+
+`--ai-strength` overrides the mix: `1` for full AI, `0.5` if a portrait still looks too smooth.
 
 a4print's JPEG and noise cleanup runs before the AI. Without it, Real-ESRGAN turns JPEG blocks into invented blotches.
+
+The preview (`name_preview.jpg`) shows, below the before/after, the busiest 5 x 5 cm of the print at actual size twice: as a plain enlargement of the original pixels and as a4print made it. That's where to judge what the AI did.
+
+What was tried and left out: Real-ESRGAN's illustration model (`realesrgan-x4plus-anime`) is 3 times faster but draws a white halo around edges, which shows on paper. You can still pick it with `--ai-model realesrgan-x4plus-anime`.
 
 ## Print quality ratings
 

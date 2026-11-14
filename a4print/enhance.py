@@ -28,6 +28,71 @@ def is_grayscale(arr, tolerance=6.0, max_colored=0.0005):
     return float((chroma > 3 * tolerance).mean()) <= max_colored
 
 
+def content_type(arr):
+    """"artwork" (posters, illustrations, logos, graphics) or "photo".
+
+    Two measurements, taken at the image's own resolution on a center crop:
+    how much of it is flat, and how abrupt its strong edges are. Drawn
+    graphics have hard, step-like edges (score near 1.0); photos change
+    gradually across edges (0.85 or less), even when heavily compressed.
+    Mistaking a photo for artwork would over-sharpen it, so artwork needs
+    both signs."""
+    h, w = arr.shape[:2]
+    y, x = max(0, (h - 768) // 2), max(0, (w - 768) // 2)
+    crop = arr[y:y + 768, x:x + 768]
+    gray = cv2.medianBlur(to_gray(crop), 3).astype(np.float32)
+    if min(gray.shape) < 16:
+        return "photo"
+    lap = np.abs(cv2.Laplacian(gray, cv2.CV_32F))
+    flat = float((cv2.blur((lap < 4).astype(np.float32), (5, 5)) > 0.95).mean())
+    mag = np.hypot(cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1))
+    box = np.ones((5, 5), np.uint8)
+    contrast = cv2.dilate(gray, box) - cv2.erode(gray, box)
+    edges = (contrast > 40) & (mag >= cv2.dilate(mag, np.ones((3, 3), np.uint8)))
+    if edges.sum() < 50:
+        return "photo"
+    sharpness = float(np.median(mag[edges] / (4 * contrast[edges])))
+    return "artwork" if sharpness >= 0.92 and flat >= 0.4 else "photo"
+
+
+def tiny_text_mask(arr, min_h=4, max_h=14):
+    """Mask (uint8, 255 = text) of lines of very small text: characters 4-14
+    px tall, like credit lines and dates on a downloaded poster.
+
+    AI upscalers invent letter shapes at that size ("2025" can come out as
+    "2023"), so these lines are better left to a plain enlargement:
+    blurrier, but they still say what they said. Text is found the way OCR
+    tools find it: character-sized shapes with similar neighbors in a row.
+    Each hit is widened to cover its whole line."""
+    gray = to_gray(arr)
+    hits = np.zeros(gray.shape, np.uint8)
+    for mode in (cv2.THRESH_BINARY_INV, cv2.THRESH_BINARY):  # dark text, then light text
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, mode, 15, 15)
+        n, _, stats, centers = cv2.connectedComponentsWithStats(binary, 8)
+        keep = [i for i in range(1, n)
+                if min_h <= stats[i, 3] <= max_h and stats[i, 2] <= 2.5 * stats[i, 3] and stats[i, 4] >= 6]
+        if not keep:
+            continue
+        c = centers[keep]
+        for j, i in enumerate(keep):
+            x, y, w, h = stats[i, :4]
+            same_row = np.abs(c[:, 1] - c[j, 1]) < 0.6 * h
+            close = np.abs(c[:, 0] - c[j, 0]) < 2.0 * h
+            if np.sum(same_row & close) - 1 >= 2:
+                hits[max(0, y - 2):y + h + 2, max(0, x - 2):x + w + 2] = 255
+    if not hits.any():
+        return hits
+    # Join the letters of a line into one block, then fill each block's box.
+    joined = cv2.dilate(hits, np.ones((1, 4 * max_h), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(joined, 8)
+    mask = np.zeros_like(hits)
+    for x, y, w, h, _ in stats[1:]:
+        # The widening added 2 * max_h at each end; keep about one character
+        # of it, so letters at the ends of the line that weren't hit are covered.
+        mask[y:y + h, max(0, x + max_h):x + w - max_h] = 255
+    return mask
+
+
 def to_gray(arr):
     return arr if arr.ndim == 2 else cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 

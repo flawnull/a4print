@@ -9,6 +9,10 @@ a single page or a poster split over several sheets.
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
+import numpy as np
+from PIL import Image
+
 from . import enhance, files, layout, poster, upscale
 
 # Above this, the image is already sharp on paper and Real-ESRGAN adds
@@ -33,7 +37,7 @@ class Options:
     midtones: float = 0.05
     ai: bool = False
     ai_model: str = "realesrgan-x4plus"
-    ai_strength: float = 0.7       # mix of AI result vs plain resize
+    ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0 artwork, 0.7 photos
     min_dpi: float = 150
     poster: tuple = None           # (columns, rows) of A4 sheets, or None for one page
     overlap: float = 10.0          # mm shared by neighboring poster sheets
@@ -53,6 +57,8 @@ class Report:
     fill_reason: str = ""
     cleanup: str = ""              # why denoise ran, "" if it didn't
     resize_method: str = ""
+    content: str = ""              # "artwork" or "photo", when AI ran
+    detail: tuple = None           # (plain enlargement, result) of one area, for the preview
     poster: object = None          # poster.Plan when making a poster
     warnings: list = field(default_factory=list)
     tips: list = field(default_factory=list)
@@ -85,6 +91,9 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     at `dpi`. Returns the area-sized array."""
     area_w, area_h = area
     h, w = arr.shape[:2]
+    source = arr
+    # Where the source's pixels land in the area: (source box, area box).
+    mapping = ((0, 0, w, h), None)
 
     fill, pad = opts.fill, 255
     if fill == "auto":
@@ -96,6 +105,9 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         # a page-filling image. Resolution is that of the original pixels.
         report.effective_dpi = layout.effective_dpi(w, layout.fit_size(w, h, area_w, area_h)[0], dpi)
         arr = layout.pad_to_shape(arr, area_w, area_h, *pad)
+        s = area_w / arr.shape[1]
+        ox, oy = (arr.shape[1] - w) // 2, (arr.shape[0] - h) // 2
+        mapping = ((0, 0, w, h), (round(ox * s), round(oy * s), round(w * s), round(h * s)))
         h, w = arr.shape[:2]
 
     if fill == "pad":
@@ -104,6 +116,7 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         x0, y0, x1, y1 = layout.crop_box(w, h, area_w, area_h, opts.anchor)
         arr = arr[y0:y1, x0:x1]
         out_size = (area_w, area_h)
+        mapping = ((x0, y0, x1, y1), (0, 0, area_w, area_h))
         report.effective_dpi = layout.effective_dpi(x1 - x0, area_w, dpi)
         kept = (x1 - x0) * (y1 - y0) / (w * h)
         if kept < 0.6:
@@ -111,6 +124,7 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
                                    "fit or extend (--fill) keeps all of it")
     else:
         out_size = layout.fit_size(w, h, area_w, area_h)
+        mapping = ((0, 0, w, h), ((area_w - out_size[0]) // 2, (area_h - out_size[1]) // 2) + out_size)
         report.effective_dpi = layout.effective_dpi(w, out_size[0], dpi)
         covered = out_size[0] * out_size[1] / (area_w * area_h)
         if fill == "extend" and covered < 0.5:
@@ -131,7 +145,19 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     if scale >= 1:
         if opts.enhance:
             arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
-        arr, report.resize_method = upscale.resize(arr, out_size, use_ai, opts.ai_model, opts.ai_strength)
+        strength, label, protect = opts.ai_strength, "", None
+        if use_ai:
+            report.content = enhance.content_type(arr)
+            if strength is None:
+                # Artwork has no skin to turn waxy, so it gets the full AI result.
+                strength = 1.0 if report.content == "artwork" else 0.7
+                label = report.content
+            if report.content == "artwork":
+                protect = enhance.tiny_text_mask(arr)
+                if protect.any():
+                    label = ", ".join(filter(None, [label, "small text kept as is"]))
+        arr, report.resize_method = upscale.resize(arr, out_size, use_ai, opts.ai_model,
+                                                   0.7 if strength is None else strength, label, protect)
     else:
         arr, report.resize_method = upscale.resize(arr, out_size)
         if opts.enhance:
@@ -150,7 +176,35 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     if opts.enhance:
         radius = opts.sharpen_radius * dpi / layout.DPI
         arr = enhance.finish_for_print(arr, opts.sharpen, radius, opts.shadows, opts.midtones)
+    report.detail = detail_pair(source, arr, mapping)
     return arr
+
+
+def detail_pair(source, result, mapping, size=600):
+    """The busiest `size` x `size` area of the result (where detail matters
+    most), plus the same area as a plain enlargement of the source pixels.
+    Shows at print size what the processing did."""
+    (sx0, sy0, sx1, sy1), (px, py, pw, ph) = mapping
+    size = min(size, pw, ph)
+    if size < 32:
+        return None
+    # Search on a 1/4 size copy for the window with the most edge energy.
+    step = 4
+    region = enhance.to_gray(result[py:py + ph, px:px + pw])
+    small = cv2.resize(region, (max(1, pw // step), max(1, ph // step)), interpolation=cv2.INTER_AREA)
+    energy = np.abs(cv2.Laplacian(small.astype(np.float32), cv2.CV_32F))
+    win = max(1, size // step)
+    score = cv2.boxFilter(energy, -1, (win, win), normalize=False, anchor=(0, 0), borderType=cv2.BORDER_CONSTANT)
+    score = score[: max(1, small.shape[0] - win + 1), : max(1, small.shape[1] - win + 1)]
+    wy, wx = np.unravel_index(int(np.argmax(score)), score.shape)
+    x, y = px + wx * step, py + wy * step
+    x, y = min(x, px + pw - size), min(y, py + ph - size)
+
+    final = result[y:y + size, x:x + size]
+    fx, fy = (sx1 - sx0) / pw, (sy1 - sy0) / ph
+    box = (sx0 + (x - px) * fx, sy0 + (y - py) * fy, sx0 + (x - px + size) * fx, sy0 + (y - py + size) * fy)
+    plain = Image.fromarray(source).resize((size, size), Image.LANCZOS, box=box)
+    return np.asarray(plain), final
 
 
 def prepare(arr, opts, jpeg_quality=None):
@@ -234,7 +288,7 @@ def process_file(path, out_dir, opts, name=None):
     if opts.preview:
         preview = out_dir / preview_name
         files.save_preview(files.to_rgb_image(original), after, preview,
-                           "After (poster)" if opts.poster else "After (A4)")
+                           "After (poster)" if opts.poster else "After (A4)", detail=report.detail)
         report.outputs.append(preview)
 
     return report, pages

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -56,7 +57,7 @@ def realesrgan_x4(arr, model="realesrgan-x4plus"):
         return np.asarray(Image.open(dst).convert("L" if arr.ndim == 2 else "RGB"))
 
 
-def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7):
+def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, label="", protect=None):
     """Resize to `size` (w, h). With ai=True, enlargements go through Real-ESRGAN
     first and Lanczos takes the result to the exact size.
 
@@ -69,10 +70,18 @@ def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7):
     h, w = arr.shape[:2]
     enlarging = size[0] > w or size[1] > h
     if ai and enlarging:
-        ai_result = lanczos(realesrgan_x4(arr, ai_model), size)
+        ai_result = lanczos(realesrgan_x4(arr, ai_model), size).astype(np.float32)
+        plain = lanczos(arr, size).astype(np.float32)
+        weight = np.full(ai_result.shape[:2], min(max(ai_strength, 0.0), 1.0), np.float32)
+        if protect is not None and protect.any():
+            # Areas in `protect` (small text) get the plain enlargement, with
+            # a soft edge so there's no visible seam.
+            mask = cv2.resize(protect, size, interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
+            mask = cv2.GaussianBlur(mask, (0, 0), 1.5 * size[0] / arr.shape[1])
+            weight *= 1 - np.clip(mask * 1.5, 0, 1)
+        if ai_result.ndim == 3:
+            weight = weight[..., None]
+        ai_result = np.clip(plain + weight * (ai_result - plain) + 0.5, 0, 255).astype(np.uint8)
         strength = min(max(ai_strength, 0.0), 1.0)
-        if strength < 1:
-            plain = lanczos(arr, size).astype(np.float32)
-            ai_result = np.clip(plain + strength * (ai_result - plain) + 0.5, 0, 255).astype(np.uint8)
-        return ai_result, f"Real-ESRGAN ({strength:.0%}) + Lanczos"
+        return ai_result, f"Real-ESRGAN ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
     return lanczos(arr, size), "Lanczos"

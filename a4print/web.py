@@ -138,6 +138,9 @@ class App:
             "dpi": round(report.effective_dpi),
             "low": report.effective_dpi < opts.min_dpi,
             "ai_used": "Real-ESRGAN" in report.resize_method,
+            "ai_note": ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
+                       + ("; small text kept as is" if "small text" in report.resize_method else "")
+                       if "Real-ESRGAN" in report.resize_method else "",
             "fill": report.fill_reason or report.fill,
             "poster": (f"{report.poster.cols}x{report.poster.rows} sheets, "
                        f"{report.poster.poster_mm[0] / 10:.0f} x {report.poster.poster_mm[1] / 10:.0f} cm")
@@ -419,9 +422,13 @@ function showAI(status) {
   $("ai-setup").hidden = status.ai || !status.ai_installable;
   $("ai-box").hidden = !status.ai && !status.ai_installable;
   if (status.ai) $("ai-note").textContent =
-    "Makes small images print noticeably sharper. Takes a few seconds per image with a graphics chip, longer without.";
+    "Makes small images print sharper. Used only when an image needs it; the preview shows a detail at print size.";
 }
-fetch("/status").then(r => r.json()).then(showAI);
+fetch("/status").then(r => r.json()).then(s => {
+  showAI(s);
+  // AI is on by default once installed; it skips images that are already sharp.
+  if (s.ai) $("ai-on").querySelector("input").checked = true;
+});
 
 $("ai-setup").addEventListener("click", async () => {
   const btn = $("ai-setup");
@@ -500,7 +507,8 @@ go.addEventListener("click", async () => {
       const s = data.summary;
       box.append(verdict(s, aiChecked));
       box.append(el("p", {class: "what"}, (s.poster ? "Poster: " + s.poster + ". " : "") +
-        s.fill.charAt(0).toUpperCase() + s.fill.slice(1) + "." + (s.ai_used ? " Sharpened with AI." : "")));
+        s.fill.charAt(0).toUpperCase() + s.fill.slice(1) + "." +
+        (s.ai_used ? " Sharpened with AI, " + s.ai_note + "." : "")));
       const preview = data.files.find(f => f.kind === "jpg");
       if (preview) box.append(el("img", {src: preview.url, alt: "Before and after"}));
       const dl = el("div", {class: "downloads"});
