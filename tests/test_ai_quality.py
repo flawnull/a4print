@@ -152,3 +152,14 @@ def test_merge_strips_match_whole_image():
     strips = upscale.merge_ai(plain, ai, scale=4, rows=64).astype(int)
     assert np.abs(whole - strips).max() <= 1
     assert np.array_equal(upscale.merge_ai(plain, ai, scale=4, strength=0), plain)
+
+
+def test_detail_centers_on_a_face():
+    from skimage import data
+
+    portrait = data.astronaut()           # NASA portrait, public domain
+    face = enhance.find_face(portrait)
+    assert face is not None
+    x, y, w, h = face
+    assert 150 < x + w / 2 < 300 and 60 < y + h / 2 < 200
+    assert enhance.find_face(flat_graphic()) is None

@@ -52,6 +52,15 @@ def safe_name(name):
     return name[:120]
 
 
+def file_role(name):
+    """What an output file is for, so the page can place it."""
+    for suffix, role in (("_detail_plain.jpg", "detail_plain"), ("_detail_final.jpg", "detail_final"),
+                         ("_preview.jpg", "preview"), (".pdf", "pdf"), (".png", "png")):
+        if name.endswith(suffix):
+            return role
+    return "other"
+
+
 def build_argv(upload, out_dir, query):
     """Turn the page's options into the same arguments the CLI takes."""
     argv = [str(upload), "-o", str(out_dir)]
@@ -149,6 +158,7 @@ class App:
         opts, error = parse_options(build_argv(upload, job_dir, query))
         if error:
             return HTTPStatus.BAD_REQUEST, {"error": error}
+        opts.detail_files = True   # for the before/after slider
         if opts.max_quality and not maxq.available():
             return HTTPStatus.BAD_REQUEST, {"error": "maximum quality isn't set up on this computer"}
         if opts.ai and not opts.max_quality and not self.ai_available:
@@ -161,7 +171,8 @@ class App:
                 return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
 
         outputs = [
-            {"name": out.name, "url": f"/files/{job}/{out.name}", "kind": out.suffix.lstrip(".")}
+            {"name": out.name, "url": f"/files/{job}/{out.name}", "kind": out.suffix.lstrip("."),
+             "role": file_role(out.name)}
             for out in report.outputs
         ]
         summary = {
@@ -397,6 +408,19 @@ PAGE = r"""<!doctype html>
   .verdict b.good { color: var(--good); } .verdict b.ok { color: var(--ok); } .verdict b.low { color: var(--low); }
   .what { color: var(--muted); font-size: 15px; margin: 0 0 8px; }
   .result img { width: 100%; border-radius: 6px; margin: 8px 0; }
+  .compare { margin: 12px 0; }
+  .compare .stage { position: relative; line-height: 0; border-radius: 8px; overflow: hidden;
+                    max-width: 600px; margin: 0 auto; }
+  .compare .stage img { margin: 0; border-radius: 0; display: block; width: 100%; }
+  .compare .stage img.before { position: absolute; inset: 0; height: 100%; object-fit: cover; }
+  .compare .divider { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+                      background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); pointer-events: none; }
+  .compare input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+                               opacity: 0; cursor: ew-resize; }
+  .compare input[type=range]:focus-visible { opacity: .25; }
+  .compare figcaption { display: flex; justify-content: space-between; gap: 8px; max-width: 600px;
+                        margin: 6px auto 0; font-size: 13px; color: var(--muted); }
+  .whole summary { font-size: 14px; }
   .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   .downloads a.main { background: var(--accent); color: var(--accent-text); text-decoration: none;
                       font-weight: 600; border-radius: 8px; padding: 10px 18px; }
@@ -612,9 +636,15 @@ function el(tag, attrs = {}, text = "") {
 function verdict(summary, aiChecked) {
   const key = Object.keys(VERDICTS).find(k => summary.quality.startsWith(k)) || "low";
   let [cls, label, sentence] = VERDICTS[key];
-  if (summary.low && summary.ai_used)
-    sentence = "The original is small. AI sharpening helps a lot, but a larger version would still print better.";
   const box = el("div", {class: "verdict"});
+  if (summary.ai_used && summary.dpi < 240) {
+    // Separate what the file had from what the print gets.
+    box.append(el("b", {class: "ok"}, "Sharpened with AI"),
+      document.createTextNode(". The original is " + label.toLowerCase() + " resolution (" + summary.dpi +
+        " DPI on this size); edges, lettering and faces now print crisp, and the finest detail is partly " +
+        "drawn by the AI. Compare below."));
+    return box;
+  }
   const b = el("b", {class: cls}, "Print quality: " + label);
   box.append(b, document.createTextNode(" (" + summary.dpi + " DPI). " + sentence));
   if (summary.low && !summary.ai_used) {
@@ -623,6 +653,26 @@ function verdict(summary, aiChecked) {
       : aiSetup ? " Set up AI sharpening above, then make it again." : " A larger version of the image would help."));
   }
   return box;
+}
+
+// Before/after comparison at print size: drag (or use the arrow keys) to move the divider.
+function slider(beforeUrl, afterUrl) {
+  const wrap = el("figure", {class: "compare"});
+  const stage = el("div", {class: "stage"});
+  const after = el("img", {src: afterUrl, alt: "a4print result"});
+  const before = el("img", {src: beforeUrl, alt: "Plain enlargement", class: "before"});
+  const line = el("div", {class: "divider"});
+  const range = el("input", {type: "range", min: "0", max: "100", value: "50",
+                             "aria-label": "Move the divider between plain enlargement and a4print"});
+  const move = v => { before.style.clipPath = "inset(0 " + (100 - v) + "% 0 0)"; line.style.left = v + "%"; };
+  range.addEventListener("input", () => move(range.value));
+  stage.append(after, before, line, range);
+  move(50);
+  const cap = el("figcaption");
+  cap.append(el("span", {}, "Plain enlargement"), el("span", {}, "Detail at print size (5 x 5 cm)"),
+             el("span", {}, "a4print"));
+  wrap.append(stage, cap);
+  return wrap;
 }
 
 go.addEventListener("click", async () => {
@@ -648,10 +698,18 @@ go.addEventListener("click", async () => {
       box.append(el("p", {class: "what"}, (s.poster ? "Poster: " + s.poster + ". " : "") +
         s.fill.charAt(0).toUpperCase() + s.fill.slice(1) + "." +
         (s.ai_used ? " Sharpened with AI, " + s.ai_note + "." : "")));
-      const preview = data.files.find(f => f.kind === "jpg");
-      if (preview) box.append(el("img", {src: preview.url, alt: "Before and after"}));
+      const role = r => data.files.find(f => f.role === r);
+      const plain = role("detail_plain"), final = role("detail_final");
+      if (plain && final) box.append(slider(plain.url, final.url));
+      const preview = role("preview");
+      if (preview) {
+        const whole = el("details", {class: "whole"});
+        whole.append(el("summary", {}, "Whole image, before and after"),
+                     el("img", {src: preview.url, alt: "Before and after"}));
+        box.append(whole);
+      }
       const dl = el("div", {class: "downloads"});
-      const pdf = data.files.find(f => f.kind === "pdf"), png = data.files.find(f => f.kind === "png");
+      const pdf = role("pdf"), png = role("png");
       if (pdf) dl.append(el("a", {class: "main", href: pdf.url, download: pdf.name}, "Download PDF"));
       if (png) dl.append(el("a", {class: "alt", href: png.url, download: png.name}, "or the PNG image"));
       box.append(dl);

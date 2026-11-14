@@ -58,11 +58,11 @@ def test_page_loads(server):
 def test_upload_makes_a4_files(server, portrait):
     status, data = post(server + "/process?name=holiday.png&fill=fit", png_bytes(portrait))
     assert status == 200
-    kinds = sorted(f["kind"] for f in data["files"])
-    assert kinds == ["jpg", "pdf", "png"]
+    roles = sorted(f["role"] for f in data["files"])
+    assert roles == ["detail_final", "detail_plain", "pdf", "png", "preview"]
     assert any(label == "page" and "A4 portrait, fit" in text for label, text in data["lines"])
 
-    pdf = next(f for f in data["files"] if f["kind"] == "pdf")
+    pdf = next(f for f in data["files"] if f["role"] == "pdf")
     status, headers, body = get(server + pdf["url"])
     assert status == 200 and body.startswith(b"%PDF")
     assert "attachment" in headers["Content-Disposition"]
@@ -71,7 +71,8 @@ def test_upload_makes_a4_files(server, portrait):
 def test_upload_makes_poster(server, landscape):
     status, data = post(server + "/process?name=wall.png&poster=2x2", png_bytes(landscape))
     assert status == 200
-    assert sorted(f["name"] for f in data["files"]) == ["wall_poster.pdf", "wall_poster_preview.jpg"]
+    names = sorted(f["name"] for f in data["files"])
+    assert names == ["wall_detail_final.jpg", "wall_detail_plain.jpg", "wall_poster.pdf", "wall_poster_preview.jpg"]
 
 
 def test_bad_options_use_the_cli_messages(server, portrait):
@@ -193,3 +194,20 @@ def test_calibration_from_the_page(server):
     assert status == 400
     status, _ = post(server + "/settings?black=5&gray=C", b"", {"X-A4print": "0"})
     assert status == 403
+
+
+def test_detail_crops_match_in_size(server, portrait):
+    _, data = post(server + "/process?name=a.png", png_bytes(portrait))
+    sizes = []
+    for role in ("detail_plain", "detail_final"):
+        f = next(f for f in data["files"] if f["role"] == role)
+        status, _, body = get(server + f["url"])
+        assert status == 200
+        sizes.append(Image.open(io.BytesIO(body)).size)
+    assert sizes[0] == sizes[1] == (600, 600)
+
+
+def test_file_roles():
+    assert web.file_role("x_detail_plain.jpg") == "detail_plain"
+    assert web.file_role("x_poster_preview.jpg") == "preview"
+    assert web.file_role("x_a4.pdf") == "pdf" and web.file_role("x_a4.png") == "png"

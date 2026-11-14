@@ -44,6 +44,7 @@ class Options:
     overlap: float = 10.0          # mm shared by neighboring poster sheets
     pdf: bool = True
     preview: bool = True
+    detail_files: bool = False     # also save the detail crops as name_detail_plain/final.jpg (web page)
 
 
 @dataclass
@@ -186,24 +187,33 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
 
 
 def detail_pair(source, result, mapping, size=600):
-    """The busiest `size` x `size` area of the result (where detail matters
-    most), plus the same area as a plain enlargement of the source pixels.
-    Shows at print size what the processing did."""
+    """One `size` x `size` area of the result at print size, plus the same
+    area as a plain enlargement of the source pixels, to show what the
+    processing did. The area is centered on the largest face if there is
+    one (where AI quality shows most), otherwise it's the busiest area."""
     (sx0, sy0, sx1, sy1), (px, py, pw, ph) = mapping
     size = min(size, pw, ph)
     if size < 32:
         return None
-    # Search on a 1/4 size copy for the window with the most edge energy.
-    step = 4
-    region = enhance.to_gray(result[py:py + ph, px:px + pw])
-    small = cv2.resize(region, (max(1, pw // step), max(1, ph // step)), interpolation=cv2.INTER_AREA)
-    energy = np.abs(cv2.Laplacian(small.astype(np.float32), cv2.CV_32F))
-    win = max(1, size // step)
-    score = cv2.boxFilter(energy, -1, (win, win), normalize=False, anchor=(0, 0), borderType=cv2.BORDER_CONSTANT)
-    score = score[: max(1, small.shape[0] - win + 1), : max(1, small.shape[1] - win + 1)]
-    wy, wx = np.unravel_index(int(np.argmax(score)), score.shape)
-    x, y = px + wx * step, py + wy * step
-    x, y = min(x, px + pw - size), min(y, py + ph - size)
+    region = result[py:py + ph, px:px + pw]
+    face = enhance.find_face(region)
+    if face is not None:
+        fx0, fy0, fw, fh = face
+        cx, cy = fx0 + fw // 2, fy0 + int(fh * 0.45)   # just above the middle: the eyes
+        x, y = px + cx - size // 2, py + cy - size // 2
+    else:
+        # Search on a 1/4 size copy for the window with the most edge energy.
+        step = 4
+        small = cv2.resize(enhance.to_gray(region), (max(1, pw // step), max(1, ph // step)),
+                           interpolation=cv2.INTER_AREA)
+        energy = np.abs(cv2.Laplacian(small.astype(np.float32), cv2.CV_32F))
+        win = max(1, size // step)
+        score = cv2.boxFilter(energy, -1, (win, win), normalize=False, anchor=(0, 0), borderType=cv2.BORDER_CONSTANT)
+        score = score[: max(1, small.shape[0] - win + 1), : max(1, small.shape[1] - win + 1)]
+        wy, wx = np.unravel_index(int(np.argmax(score)), score.shape)
+        x, y = px + wx * step, py + wy * step
+    x = min(max(x, px), px + pw - size)
+    y = min(max(y, py), py + ph - size)
 
     final = result[y:y + size, x:x + size]
     fx, fy = (sx1 - sx0) / pw, (sy1 - sy0) / ph
@@ -295,5 +305,10 @@ def process_file(path, out_dir, opts, name=None):
         files.save_preview(files.to_rgb_image(original), after, preview,
                            "After (poster)" if opts.poster else "After (A4)", detail=report.detail)
         report.outputs.append(preview)
+    if opts.detail_files and report.detail is not None:
+        for label, arr in zip(("plain", "final"), report.detail):
+            path = out_dir / f"{name}_detail_{label}.jpg"
+            files.to_rgb_image(arr).save(path, "JPEG", quality=92, icc_profile=files.SRGB_ICC)
+            report.outputs.append(path)
 
     return report, pages

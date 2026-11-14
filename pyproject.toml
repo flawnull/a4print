@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "scikit-image"]
 heic = ["pillow-heif>=1.2"]
 max = ["torch>=2.1", "spandrel>=0.4"]
 
@@ -30,3 +30,6 @@ a4print-calibrate = "a4print.calibrate:main"
 
 [tool.setuptools]
 packages = ["a4print"]
+
+[tool.setuptools.package-data]
+a4print = ["data/*.onnx"]

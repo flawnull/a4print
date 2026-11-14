@@ -70,12 +70,12 @@ def models_dir():
 
 
 def libraries_available():
-    try:
-        import spandrel  # noqa: F401
-        import torch  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    """True if PyTorch and spandrel are installed. Checked without importing
+    them: the first PyTorch import can take many seconds, and the web page
+    asks this every time it opens."""
+    import importlib.util
+
+    return all(importlib.util.find_spec(name) is not None for name in ("torch", "spandrel"))
 
 
 def models_installed():

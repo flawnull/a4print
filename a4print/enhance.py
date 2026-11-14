@@ -5,6 +5,7 @@ Sharpening and tone changes touch luminance only, so hues stay put.
 """
 
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -91,6 +92,34 @@ def tiny_text_mask(arr, min_h=4, max_h=14):
         # of it, so letters at the ends of the line that weren't hit are covered.
         mask[y:y + h, max(0, x + max_h):x + w - max_h] = 255
     return mask
+
+
+_FACE_MODEL = Path(__file__).parent / "data" / "face_detection_yunet_2023mar.onnx"
+_face_detector = None
+
+
+def find_face(arr, max_side=1024):
+    """(x, y, w, h) of the largest face in the image, or None.
+
+    Uses YuNet (MIT license, from the OpenCV model zoo), a small face
+    detector that ships with a4print. Runs on a reduced copy for speed."""
+    global _face_detector
+    if not hasattr(cv2, "FaceDetectorYN") or not _FACE_MODEL.exists():
+        return None
+    h, w = arr.shape[:2]
+    scale = min(1.0, max_side / max(h, w))
+    small = cv2.resize(arr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    bgr = cv2.cvtColor(small, cv2.COLOR_GRAY2BGR if small.ndim == 2 else cv2.COLOR_RGB2BGR)
+    if _face_detector is None:
+        if hasattr(cv2, "utils") and hasattr(cv2.utils, "logging"):
+            cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+        _face_detector = cv2.FaceDetectorYN.create(str(_FACE_MODEL), "", (320, 320), 0.7)
+    _face_detector.setInputSize((bgr.shape[1], bgr.shape[0]))
+    _, faces = _face_detector.detect(bgr)
+    if faces is None or not len(faces):
+        return None
+    x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])[:4]
+    return tuple(int(round(v / scale)) for v in (x, y, fw, fh))
 
 
 def to_gray(arr):
