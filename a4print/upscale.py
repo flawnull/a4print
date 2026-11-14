@@ -57,6 +57,45 @@ def realesrgan_x4(arr, model="realesrgan-x4plus"):
         return np.asarray(Image.open(dst).convert("L" if arr.ndim == 2 else "RGB"))
 
 
+def merge_ai(plain, ai, scale, strength=1.0, rows=512):
+    """Combine the AI result with the plain enlargement, layer by layer.
+
+    - Tones and colors (detail coarser than ~1.5 original pixels) come from
+      the plain enlargement, which is faithful to the original. Upscaling
+      AIs shift these: up to 13 Lab units of lightness on a cat photo.
+    - Edges and fine detail come from the AI.
+    - Where the AI wiped out fine texture (skin, paper grain), the original
+      texture is put back, in proportion to how much was lost. Where the AI
+      kept or added detail, its result stays as is.
+
+    `strength` mixes the result with the plain enlargement (1.0 = all of
+    the above, 0 = plain). Works in strips, so posters stay light on memory.
+    """
+    low_sigma, area_sigma = 1.5 * scale, 2.0 * scale
+    margin = int(3 * area_sigma) + 2
+    out = np.empty_like(ai)
+    for top in range(0, ai.shape[0], rows):
+        a0, b0 = max(0, top - margin), min(ai.shape[0], top + rows + margin)
+        p = plain[a0:b0].astype(np.float32)
+        a = ai[a0:b0].astype(np.float32)
+        low_p = cv2.GaussianBlur(p, (0, 0), low_sigma)
+        hi_p = p - low_p
+        hi_a = a - cv2.GaussianBlur(a, (0, 0), low_sigma)
+
+        def energy(hi):
+            luma = hi.mean(axis=2) if hi.ndim == 3 else hi
+            return cv2.GaussianBlur(luma * luma, (0, 0), area_sigma)
+
+        lost = np.clip(1 - energy(hi_a) / (energy(hi_p) + 1e-3), 0, 1)  # share of texture the AI removed
+        if hi_a.ndim == 3:
+            lost = lost[..., None]
+        # result = low_p + hi_a + lost * hi_p, mixed with plain (= low_p + hi_p) by strength
+        merged = low_p + hi_p + strength * (hi_a - (1 - lost) * hi_p)
+        strip = np.clip(merged + 0.5, 0, 255).astype(np.uint8)
+        out[top:top + rows] = strip[top - a0: top - a0 + rows]
+    return out
+
+
 def _protect_areas(result, plain, protect, scale):
     """Put the plain enlargement back where `protect` (small text) is set,
     with a soft edge so there's no seam. Works only inside the protected
@@ -91,14 +130,9 @@ def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, l
     enlarging = size[0] > w or size[1] > h
     if ai and enlarging:
         strength = min(max(ai_strength, 0.0), 1.0)
-        result = lanczos(realesrgan_x4(arr, ai_model), size)
         plain = lanczos(arr, size)
-        if strength < 1:
-            # Blend in 8 bits: a poster can be 75 megapixels, and
-            # floating-point copies of that would need gigabytes.
-            result = cv2.addWeighted(result, strength, plain, 1 - strength, 0)
+        result = merge_ai(plain, lanczos(realesrgan_x4(arr, ai_model), size), size[0] / w, strength)
         if protect is not None and protect.any():
-            result = np.array(result)  # writable
             _protect_areas(result, plain, protect, size[0] / w)
         return result, f"Real-ESRGAN ({strength:.0%}{', ' + label if label else ''}) + Lanczos"
     return lanczos(arr, size), "Lanczos"

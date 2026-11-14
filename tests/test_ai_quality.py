@@ -2,6 +2,7 @@
 
 import sys
 
+import cv2
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -69,10 +70,10 @@ def test_artwork_gets_full_strength_and_text_protection(fake_ai):
     assert "100%, artwork, small text kept as is" in report.resize_method
 
 
-def test_photos_get_70_percent(fake_ai):
+def test_photos_get_full_strength(fake_ai):
     _, report = prepare(with_noise(gradient(300, 200), 6), Options(ai=True, enhance=False))
     assert report.content == "photo"
-    assert "70%, photo" in report.resize_method
+    assert "100%, photo" in report.resize_method
 
 
 def test_protected_area_is_the_plain_enlargement(fake_ai):
@@ -106,3 +107,48 @@ def test_detail_pair_and_preview(tmp_path):
 def test_detail_pair_handles_tiny_areas():
     assert detail_pair(np.zeros((10, 10, 3), np.uint8), np.zeros((20, 20, 3), np.uint8),
                        ((0, 0, 10, 10), (0, 0, 20, 20))) is None
+
+
+def _upscaled_pair():
+    """A plain enlargement and a fake 'AI' result that brightens everything
+    (tone drift), sharpens an edge, and wipes out fine texture."""
+    rng = np.random.default_rng(0)
+    plain = np.full((400, 400, 3), 120, np.float32)
+    plain[:, 200:] = 180
+    plain = cv2.GaussianBlur(plain, (0, 0), 6)          # soft edge at x=200
+    texture = rng.normal(0, 6, (400, 400, 1)).astype(np.float32)
+    plain[:, :150] += texture[:, :150]                  # "skin" texture on the left
+    ai = np.full((400, 400, 3), 135, np.float32)         # +15 brighter, no texture
+    ai[:, 200:] = 195                                   # hard edge
+    return np.clip(plain, 0, 255).astype(np.uint8), np.clip(ai, 0, 255).astype(np.uint8)
+
+
+def test_merge_keeps_original_tones():
+    plain, ai = _upscaled_pair()
+    out = upscale.merge_ai(plain, ai, scale=4)
+    for x in (60, 330):  # inside the two flat-ish halves
+        assert abs(out[100:300, x - 20:x + 20].mean() - plain[100:300, x - 20:x + 20].mean()) < 2
+
+
+def test_merge_takes_edges_from_ai():
+    plain, ai = _upscaled_pair()
+    out = upscale.merge_ai(plain, ai, scale=4).astype(int)
+    edge = lambda img: np.abs(np.diff(img[200, 185:215, 0])).max()
+    assert edge(out) > 2 * edge(plain.astype(int))
+
+
+def test_merge_restores_texture_the_ai_removed():
+    plain, ai = _upscaled_pair()
+    out = upscale.merge_ai(plain, ai, scale=4).astype(np.float32)
+    region = (slice(100, 300), slice(20, 130))
+    hf = lambda img: (img - cv2.GaussianBlur(img, (0, 0), 3))[region].std()
+    assert hf(out) > 0.8 * hf(plain.astype(np.float32))
+    assert hf(ai.astype(np.float32)) < 0.1
+
+
+def test_merge_strips_match_whole_image():
+    plain, ai = _upscaled_pair()
+    whole = upscale.merge_ai(plain, ai, scale=4, rows=10_000).astype(int)
+    strips = upscale.merge_ai(plain, ai, scale=4, rows=64).astype(int)
+    assert np.abs(whole - strips).max() <= 1
+    assert np.array_equal(upscale.merge_ai(plain, ai, scale=4, strength=0), plain)

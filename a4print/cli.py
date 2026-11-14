@@ -86,8 +86,8 @@ def build_parser():
     g.add_argument("--ai", action="store_true", help="upscale with Real-ESRGAN (realesrgan-ncnn-vulkan)")
     g.add_argument("--ai-model", default="realesrgan-x4plus", help="Real-ESRGAN model (default: %(default)s)")
     g.add_argument("--ai-strength", type=float, default=None, metavar="S",
-                   help="0-1 mix of the AI result with a plain resize (default: 1.0 for artwork "
-                        "and graphics, 0.7 for photos so skin stays natural)")
+                   help="0-1 mix of the AI result with a plain resize (default: 1.0; tones and "
+                        "skin texture are kept from the original either way)")
     g.add_argument("--min-dpi", type=float, default=150, help="warn below this effective DPI (default: %(default)s)")
 
     g = p.add_argument_group("output")

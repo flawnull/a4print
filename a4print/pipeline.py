@@ -37,7 +37,7 @@ class Options:
     midtones: float = 0.05
     ai: bool = False
     ai_model: str = "realesrgan-x4plus"
-    ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0 artwork, 0.7 photos
+    ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0
     min_dpi: float = 150
     poster: tuple = None           # (columns, rows) of A4 sheets, or None for one page
     overlap: float = 10.0          # mm shared by neighboring poster sheets
@@ -149,15 +149,16 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         if use_ai:
             report.content = enhance.content_type(arr)
             if strength is None:
-                # Artwork has no skin to turn waxy, so it gets the full AI result.
-                strength = 1.0 if report.content == "artwork" else 0.7
+                # Full strength for everything: merge_ai keeps the original's
+                # tones and puts back texture (skin) the AI wiped out.
+                strength = 1.0
                 label = report.content
             if report.content == "artwork":
                 protect = enhance.tiny_text_mask(arr)
                 if protect.any():
                     label = ", ".join(filter(None, [label, "small text kept as is"]))
         arr, report.resize_method = upscale.resize(arr, out_size, use_ai, opts.ai_model,
-                                                   0.7 if strength is None else strength, label, protect)
+                                                   1.0 if strength is None else strength, label, protect)
     else:
         arr, report.resize_method = upscale.resize(arr, out_size)
         if opts.enhance:

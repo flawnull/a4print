@@ -155,12 +155,6 @@ Upscale a small image with Real-ESRGAN:
 a4print small.jpg --ai
 ```
 
-Illustrations, posters and graphics can take the AI result at full strength:
-
-```bash
-a4print illustration.png --ai --ai-strength 1
-```
-
 Turn off all tone and sharpness changes:
 
 ```bash
@@ -203,7 +197,7 @@ holiday.jpg
 | `--no-enhance` | off | Skip denoise, sharpening and tone lift |
 | `--ai` | off | Upscale with Real-ESRGAN instead of Lanczos |
 | `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name |
-| `--ai-strength S` | auto | Mix of the AI result with a plain resize: 1.0 for artwork, 0.7 for photos. See "AI upscaling" |
+| `--ai-strength S` | `1` | Mix of the AI result with a plain resize. See "AI upscaling" |
 | `--min-dpi N` | `150` | Warn below this effective DPI |
 | `--no-pdf`, `--no-preview` | off | Skip those outputs |
 | `--combine` | off | Also write every page into one PDF, `a4print_all.pdf` |
@@ -229,7 +223,7 @@ In order:
 5. Cleans up, only when needed. Small images are cleaned before enlarging, so problems aren't enlarged. Large images are shrunk first, which is faster and already hides most noise.
    - Sensor noise, measured in the flat half of the image (Immerkaer's method with edges excluded, after Tai & Yang 2008), so texture like hair or fabric isn't mistaken for noise. 30% of the original grain is blended back, so photos don't get a plastic look.
    - JPEG artifacts in heavily compressed files (quality under 80, typical for Pinterest and social media). The quality is read from the file's quantization tables, as ImageMagick does.
-6. Crops or scales with Lanczos. With `--ai`, images under 240 DPI on paper go through Real-ESRGAN 4x, then Lanczos to the exact size, mixed with a plain resize per `--ai-strength`. Sharper images skip the AI, since it would add minutes for no visible gain.
+6. Crops or scales with Lanczos. With `--ai`, images under 240 DPI on paper go through Real-ESRGAN 4x, then Lanczos to the exact size, combined with a plain enlargement: tones from the original, edges from the AI, and texture the AI erased put back (see "AI upscaling"). Sharper images skip the AI, since it would add minutes for no visible gain.
 7. Adds the white border (`fit`), the blurred extension (`extend`) and the `--margin`, if any.
 8. Applies a gentle unsharp mask and a shadow and midtone lift to luminance only (Lab L channel). Hue and saturation are left alone. Home inkjets print shadows darker than screens show them, which is what the lift compensates for.
 
@@ -272,13 +266,17 @@ The resolution line reports DPI on the finished poster, which is lower than on o
 
 Small images (most Pinterest and social media downloads print at 35-90 DPI on A4) gain the most from `--ai`. Real-ESRGAN draws sharp edges and plausible fine detail such as hair, fur, fabric and lettering, where plain resizing gives a blur.
 
-a4print adjusts it to the image:
+On its own, an upscaling AI has two habits that hurt a print: it shifts tones (on a test photo of a cat, lightness changed by up to 13 Lab units, where about 2 is noticeable), and it wipes out fine texture, which turns skin waxy. So a4print doesn't print the AI result directly. It combines it with a plain enlargement, layer by layer:
 
-- **Artwork and graphics** (posters, illustrations, logos) get the full AI result: crisp edges and clean flat colors. a4print recognizes artwork by its hard, step-like edges and flat areas; photos change gradually across edges even when heavily compressed.
-- **Photos** get 70% AI mixed with 30% plain resize. At full strength the AI smooths skin into a waxy, airbrushed look; the mix keeps the sharp edges and brings back natural texture.
-- **Very small text** in artwork, like a credit line or date a few pixels tall, is left as a plain enlargement. At that size the AI invents letter shapes and "2025" can come out as a different number. The plain version is softer but still says what it said.
+- **Tones and colors** come from the plain enlargement, which is faithful to the original. The drift drops to about 1 unit, and smooth gradients like skies don't turn into steps.
+- **Edges and fine detail** come from the AI: crisp eyes, lettering, fur and outlines.
+- **Texture the AI erased** (skin, paper grain) is put back from the original, area by area, in proportion to how much was lost. Where the AI sharpened or added detail, its result stays.
 
-`--ai-strength` overrides the mix: `1` for full AI, `0.5` if a portrait still looks too smooth.
+Measured on a portrait: tone drift fell from 1.5 to 0.2 on average, skin texture went from half the original to all of it, and edge sharpness stayed at the AI's level. This replaced an earlier global 70% AI / 30% plain mix, which helped skin a little but softened every edge.
+
+- **Very small text** in artwork, like a credit line or date a few pixels tall, is left as a plain enlargement. At that size the AI invents letter shapes and "2025" can come out as a different number. The plain version is softer but still says what it said. a4print recognizes artwork by its hard, step-like edges and flat areas; photos change gradually across edges even when heavily compressed.
+
+`--ai-strength` mixes the result with a plain enlargement (`1` by default, `0.5` for half the AI effect).
 
 a4print's JPEG and noise cleanup runs before the AI. Without it, Real-ESRGAN turns JPEG blocks into invented blotches.
 
