@@ -108,7 +108,11 @@ def install(progress=None, url_base=RELEASE):
     if sys.platform == "darwin":
         # Files fetched by Python aren't quarantined, but clear the flag in
         # case something else added it, so macOS lets the program run.
-        subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(target)], capture_output=True)
+        xattr = "/usr/bin/xattr" if Path("/usr/bin/xattr").exists() else "xattr"
+        try:
+            subprocess.run([xattr, "-dr", "com.apple.quarantine", str(target)], capture_output=True)
+        except OSError:
+            pass  # not fatal: the flag is usually absent anyway
     return binary
 
 

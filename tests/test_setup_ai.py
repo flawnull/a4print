@@ -67,3 +67,15 @@ def test_pinned_builds_cover_the_three_systems():
     assert set(setup_ai.BUILDS) == {"darwin", "win32", "linux"}
     for name, digest, size in setup_ai.BUILDS.values():
         assert name.endswith(".zip") and len(digest) == 64 and size > 40_000_000
+
+
+def test_install_survives_missing_xattr(local_release, monkeypatch):
+    """On macOS, clearing the quarantine flag is best effort."""
+    import subprocess
+
+    def no_xattr(*args, **kwargs):
+        raise FileNotFoundError("xattr")
+
+    monkeypatch.setattr(setup_ai.sys, "platform", sys.platform)
+    monkeypatch.setattr(subprocess, "run", no_xattr)
+    assert setup_ai.install(url_base=local_release).exists()
