@@ -119,3 +119,42 @@ def test_hidden_options_stay_hidden():
 def test_status_reports_ai(server, monkeypatch):
     status, _, body = get(server + "/status")
     assert status == 200 and json.loads(body)["ai"] in (True, False)
+
+
+def test_result_has_a_plain_summary(server, portrait):
+    status, data = post(server + "/process?name=a.png", png_bytes(portrait))
+    s = data["summary"]
+    assert s["quality"] == "low" and s["low"] is True and s["ai_used"] is False
+    assert s["dpi"] > 0 and s["fill"]
+
+
+def test_setup_ai_from_the_page(tmp_path, monkeypatch, portrait):
+    """The page's setup button installs, self-tests and turns AI on."""
+    from a4print import setup_ai
+
+    calls = []
+    monkeypatch.setattr(setup_ai, "install", lambda *a, **k: calls.append("install"))
+    monkeypatch.setattr(setup_ai, "self_test", lambda: "")
+    monkeypatch.setattr(setup_ai, "supported", lambda: True)
+    app = web.App(tmp_path)
+    app.ai_available = False
+    status, payload = app.setup_ai()
+    assert status == 200 and payload["ai"] is True and calls == ["install"]
+
+
+def test_setup_ai_reports_failures(tmp_path, monkeypatch):
+    from a4print import setup_ai
+
+    def broken(*a, **k):
+        raise setup_ai.SetupError("couldn't download Real-ESRGAN: offline")
+
+    monkeypatch.setattr(setup_ai, "install", broken)
+    app = web.App(tmp_path)
+    app.ai_available = False
+    status, payload = app.setup_ai()
+    assert status == 502 and "offline" in payload["error"] and payload["ai"] is False
+
+
+def test_setup_ai_needs_the_page_header(server):
+    status, _ = post(server + "/setup-ai", b"", {"X-A4print": "0"})
+    assert status == 403

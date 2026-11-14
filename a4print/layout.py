@@ -68,10 +68,11 @@ def _offsets(inner, outer):
     return (ow - iw) // 2, (oh - ih) // 2
 
 
-def place_on_white(fitted, tgt_w, tgt_h):
-    """Center a fitted image on a white page."""
+def place_on_white(fitted, tgt_w, tgt_h, color=255):
+    """Center a fitted image on a page of `color` (white by default)."""
     h, w = fitted.shape[:2]
-    page = np.full((tgt_h, tgt_w) + fitted.shape[2:], 255, dtype=np.uint8)
+    page = np.empty((tgt_h, tgt_w) + fitted.shape[2:], dtype=np.uint8)
+    page[:] = color
     x, y = _offsets((w, h), (tgt_w, tgt_h))
     page[y:y + h, x:x + w] = fitted
     return page
@@ -104,6 +105,67 @@ def extend_background(fitted, tgt_w, tgt_h, blur=0.03, feather=0.06):
 
     out = mirrored * weight + blurred * (1.0 - weight)
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+def border_color(arr, tolerance=18, min_match=0.97):
+    """(color, grain) of a plain outer border (paper, white, flat background),
+    or None if the image's edges are busy. Looks at an outer band 1% wide, so
+    paper grain and JPEG noise still count as plain. `grain` is the border's
+    texture strength (standard deviation, in 0-255 levels)."""
+    h, w = arr.shape[:2]
+    band = max(2, min(h, w) // 100)
+    pixels = arr.reshape(h, w, -1)
+    ring = np.concatenate([
+        pixels[:band].reshape(-1, pixels.shape[2]), pixels[-band:].reshape(-1, pixels.shape[2]),
+        pixels[:, :band].reshape(-1, pixels.shape[2]), pixels[:, -band:].reshape(-1, pixels.shape[2]),
+    ]).astype(np.int16)
+    color = np.median(ring, axis=0)
+    if (np.abs(ring - color).max(axis=1) <= tolerance).mean() < min_match:
+        return None
+    luma = ring.mean(axis=1)
+    grain = float(1.4826 * np.median(np.abs(luma - np.median(luma))))  # robust std
+    color = tuple(int(round(c)) for c in color)
+    return (color[0] if arr.ndim == 2 else color), grain
+
+
+def pad_to_shape(arr, area_w, area_h, color, grain=0.0, seed=0):
+    """Pad the image with its border color to the page's shape, at the
+    image's own resolution, adding grain that matches the border's. Scaled
+    up together, the padding then has the same texture as the paper."""
+    h, w = arr.shape[:2]
+    if w / h > area_w / area_h:
+        new_w, new_h = w, round(w * area_h / area_w)
+    else:
+        new_w, new_h = round(h * area_w / area_h), h
+    canvas = np.empty((new_h, new_w) + arr.shape[2:], np.float32)
+    canvas[:] = color
+    if grain > 0.3:
+        noise = np.random.default_rng(seed).normal(0, grain, (new_h, new_w)).astype(np.float32)
+        canvas += noise if arr.ndim == 2 else noise[..., None]
+    canvas = np.clip(canvas + 0.5, 0, 255).astype(np.uint8)
+    x, y = (new_w - w) // 2, (new_h - h) // 2
+    canvas[y:y + h, x:x + w] = arr
+    return canvas
+
+
+def auto_fill(arr, area_w, area_h, max_crop=0.2):
+    """Pick how the image fills the page. Returns (fill, pad, reason) where
+    pad is (color, grain) for "pad" and a color for "fit".
+
+    - A plain border (designed posters, product shots): keep the whole image
+      and pad the page with that border color, so nothing is cut.
+    - Otherwise crop, if that removes at most `max_crop` of the image.
+    - Otherwise keep the whole image on white.
+    """
+    h, w = arr.shape[:2]
+    border = border_color(arr)
+    if border is not None:
+        return "pad", border, "kept whole, page extended in the image's own border color"
+    x0, y0, x1, y1 = crop_box(w, h, area_w, area_h)
+    loss = 1 - (x1 - x0) * (y1 - y0) / (w * h)
+    if loss <= max_crop:
+        return "crop", 255, "fills the page" + (f", {loss:.0%} cropped off the edges" if loss >= 0.005 else "")
+    return "fit", 255, f"kept whole on white (filling the page would crop {loss:.0%})"
 
 
 def has_plain_border(arr, tolerance=18, min_share=0.02):

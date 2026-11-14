@@ -70,7 +70,7 @@ def test_ai_without_binary_fails_clearly(tmp_path, save, portrait, monkeypatch, 
     monkeypatch.delenv(upscale.ENV_VAR, raising=False)
     code = cli.main([str(save(portrait, "p.png")), "-o", str(tmp_path / "o"), "--ai"])
     assert code == 3
-    assert "realesrgan-ncnn-vulkan" in capsys.readouterr().err
+    assert "a4print-setup-ai" in capsys.readouterr().err
 
 
 def test_bad_region_is_rejected():
@@ -217,9 +217,9 @@ def test_tiny_images_do_not_break(size):
 
 def test_heavy_crop_warns():
     panorama = gradient(3000, 400)
-    _, report = prepare(panorama, Options())
+    _, report = prepare(panorama, Options(fill="crop"))
     assert any("cropping removes" in w for w in report.warnings)
-    _, report = prepare(gradient(1600, 1000), Options())
+    _, report = prepare(gradient(1600, 1000), Options(fill="crop"))
     assert not any("cropping removes" in w for w in report.warnings)
 
 

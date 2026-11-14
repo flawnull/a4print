@@ -19,7 +19,7 @@ AI_USEFUL_BELOW_DPI = 240
 @dataclass
 class Options:
     orientation: str = "auto"      # auto | portrait | landscape
-    fill: str = "crop"             # crop | extend | fit
+    fill: str = "auto"             # auto | crop | extend | fit
     anchor: str = "center"         # crop only
     margin: float = None           # white margin in mm; None = 0 for A4, 6 for posters
     trim_border: bool = False
@@ -49,6 +49,8 @@ class Report:
     grayscale: bool = False
     trimmed: tuple = None
     quality: str = ""
+    fill: str = ""                 # the fill actually used (auto resolves to one)
+    fill_reason: str = ""
     cleanup: str = ""              # why denoise ran, "" if it didn't
     resize_method: str = ""
     poster: object = None          # poster.Plan when making a poster
@@ -68,7 +70,7 @@ def clean_source(arr, opts, report):
         arr, box = layout.trim_border(arr, opts.trim_tolerance)
         if arr.shape[1::-1] != tuple(report.source_size):
             report.trimmed = box
-    elif layout.has_plain_border(arr, opts.trim_tolerance):
+    elif opts.fill != "auto" and layout.has_plain_border(arr, opts.trim_tolerance):
         report.tips.append("the image has a plain border; removing it (--trim-border) fills the page better")
 
     # Black and white: work in one channel so no color cast can creep in.
@@ -84,7 +86,21 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     area_w, area_h = area
     h, w = arr.shape[:2]
 
-    if opts.fill == "crop":
+    fill, pad = opts.fill, 255
+    if fill == "auto":
+        fill, pad, report.fill_reason = layout.auto_fill(arr, area_w, area_h)
+    report.fill = "fit" if fill == "pad" else fill
+
+    if fill == "pad":
+        # Extend the image's own border to the page shape, then treat it as
+        # a page-filling image. Resolution is that of the original pixels.
+        report.effective_dpi = layout.effective_dpi(w, layout.fit_size(w, h, area_w, area_h)[0], dpi)
+        arr = layout.pad_to_shape(arr, area_w, area_h, *pad)
+        h, w = arr.shape[:2]
+
+    if fill == "pad":
+        out_size = (area_w, area_h)
+    elif fill == "crop":
         x0, y0, x1, y1 = layout.crop_box(w, h, area_w, area_h, opts.anchor)
         arr = arr[y0:y1, x0:x1]
         out_size = (area_w, area_h)
@@ -97,7 +113,7 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         out_size = layout.fit_size(w, h, area_w, area_h)
         report.effective_dpi = layout.effective_dpi(w, out_size[0], dpi)
         covered = out_size[0] * out_size[1] / (area_w * area_h)
-        if opts.fill == "extend" and covered < 0.5:
+        if fill == "extend" and covered < 0.5:
             report.warnings.append(f"the image covers only {covered * 100:.0f}% of the page and the rest "
                                    "is blurred, mirrored edges; fit (--fill fit) may look cleaner")
     report.quality = layout.print_quality(report.effective_dpi)
@@ -124,9 +140,9 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 
     # Fill the rest of the area.
-    if opts.fill == "fit":
-        arr = layout.place_on_white(arr, area_w, area_h)
-    elif opts.fill == "extend":
+    if fill == "fit":
+        arr = layout.place_on_white(arr, area_w, area_h, pad)
+    elif fill == "extend":
         arr = layout.extend_background(arr, area_w, area_h)
 
     # Print tuning on luminance: gentle sharpening, shadow and midtone lift.

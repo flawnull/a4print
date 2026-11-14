@@ -44,9 +44,10 @@ def build_parser():
     g = p.add_argument_group("layout")
     g.add_argument("--orientation", choices=("auto", "portrait", "landscape"), default="auto",
                    help="page orientation; auto follows the image shape (default)")
-    g.add_argument("--fill", choices=("crop", "extend", "fit"), default="crop",
-                   help="crop: fill the page and cut overflow (default); extend: fit and fill the "
-                        "rest with mirrored, blurred edges; fit: fit inside a white border")
+    g.add_argument("--fill", choices=("auto", "crop", "extend", "fit"), default="auto",
+                   help="auto (default): keep artwork with a plain border whole, crop photos when "
+                        "little is lost, else fit; crop: fill the page and cut overflow; extend: fit "
+                        "and fill the rest with mirrored, blurred edges; fit: fit inside a white border")
     g.add_argument("--anchor", choices=ANCHORS, default="center", help="which part to keep when cropping")
     g.add_argument("--margin", type=float, default=None, metavar="MM",
                    help="white margin in mm, for printers that can't print borderless "
@@ -121,16 +122,20 @@ def describe(r, opts):
         size = f"{p.poster_mm[0] / 10:.0f} x {p.poster_mm[1] / 10:.0f} cm"
         lines.append(("poster", f"{p.cols}x{p.rows} {p.sheet_orientation} A4 sheets, {size}"
                                 + (f", {p.size_name}" if p.size_name else "")))
-        lines.append(("page", f"{opts.fill}, {r.resize_method}"))
+        lines.append(("page", f"{_fill_text(r)}, {r.resize_method}"))
         lines.append(("resolution", f"{r.effective_dpi:.0f} DPI on the poster, {r.quality}"))
     else:
-        lines.append(("page", f"A4 {r.orientation}, {opts.fill}, {r.resize_method}"))
+        lines.append(("page", f"A4 {r.orientation}, {_fill_text(r)}, {r.resize_method}"))
         lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at A4, {r.quality}"))
     if opts.enhance:
         lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
     lines += [("warning", w) for w in r.warnings]
     lines += [("tip", t) for t in r.tips]
     return lines
+
+
+def _fill_text(r):
+    return f"auto: {r.fill_reason}" if r.fill_reason else r.fill
 
 
 def main(argv=None):

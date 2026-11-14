@@ -48,19 +48,17 @@ pip install -e ".[dev,heic]"
 
 ### Optional: AI upscaling
 
-`--ai` uses [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) through its standalone `realesrgan-ncnn-vulkan` tool. It runs on most GPUs via Vulkan and needs no Python packages.
-
-1. Download `realesrgan-ncnn-vulkan-*-windows/macos/ubuntu.zip` from the [Real-ESRGAN releases](https://github.com/xinntao/Real-ESRGAN/releases).
-2. Unzip it. Keep the `models` folder next to the executable.
-3. Put that folder on your `PATH`, or point a4print at the executable:
+`--ai` uses [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (BSD-3-Clause) through its standalone `realesrgan-ncnn-vulkan` program. Install it with one command:
 
 ```bash
-export A4PRINT_REALESRGAN=/path/to/realesrgan-ncnn-vulkan
+a4print-setup-ai
 ```
 
-If `--ai` is used and the tool can't be found, a4print stops and tells you how to install it.
+This downloads the official build for your system (about 50 MB) from the Real-ESRGAN releases, checks its checksum, puts it in `~/.a4print/realesrgan`, and runs a quick test. The web page has a **Set up AI sharpening** button that does the same.
 
-Speed depends on your hardware. With a graphics card it takes a few seconds per image. Without one it still works through a software Vulkan driver (on Linux, `mesa-vulkan-drivers`), but expect about 3 minutes for a 500 px photo.
+Speed depends on your hardware. With a graphics chip (any recent Mac, or a PC with a graphics card) it takes seconds per image. Without one it falls back to the CPU and can take minutes.
+
+If you already have Real-ESRGAN somewhere else, a4print also finds it on your `PATH` or through `A4PRINT_REALESRGAN=/path/to/realesrgan-ncnn-vulkan`.
 
 ## In your browser
 
@@ -70,13 +68,20 @@ Prefer not to use the terminal? Start the web page:
 a4print-web
 ```
 
-It opens in your browser. Drop in one or more images, pick the options (fill, poster size, margin, border removal, AI upscaling when Real-ESRGAN is installed), and click **Make print files**. Each image shows a before/after preview, the same report as the command line, and download links for the PDF and PNG.
+It opens in your browser:
+
+1. Drop in one or more images.
+2. Pick the print size: an A4 page, or a poster of 4 or 9 sheets.
+3. Tick **Sharpen with AI** for small images, or click **Set up AI sharpening** the first time.
+4. Click **Make print files**.
+
+Each result says in plain words how sharp the print will be and what was done, shows a before/after preview, and has a **Download PDF** button. The other settings (fill, crop position, orientation, margin, border removal) are under **More options**; the defaults suit most images.
 
 Everything runs on your computer: the page only listens on `127.0.0.1` and refuses requests from other websites. Uploaded images and results are deleted when you stop it with Ctrl+C.
 
 ## Usage
 
-Print a photo, filling the page:
+Print an image on A4 with the automatic settings:
 
 ```bash
 a4print holiday.jpg
@@ -105,7 +110,7 @@ a4print scan.png --fill fit
 Crop, but keep the top of the image (for portraits where heads would be cut):
 
 ```bash
-a4print group.jpg --anchor top
+a4print group.jpg --fill crop --anchor top
 ```
 
 Strip a white or beige margin a Pinterest pin came with, then fill the page:
@@ -181,7 +186,7 @@ holiday.jpg
 |---|---|---|
 | `-o, --output-dir DIR` | `a4print_out` | Where results are saved |
 | `--orientation auto\|portrait\|landscape` | `auto` | Auto picks landscape for wide images, portrait otherwise |
-| `--fill crop\|extend\|fit` | `crop` | See "Fill modes" below |
+| `--fill auto\|crop\|extend\|fit` | `auto` | See "Fill modes" below |
 | `--anchor center\|top\|bottom\|left\|right` | `center` | Which part to keep when cropping |
 | `--margin MM` | `0`, posters `6` | White margin around the image, for printers without borderless printing |
 | `--poster COLSxROWS` | off | Split into a poster of several A4 sheets, e.g. `2x2` or `3x3` |
@@ -205,6 +210,10 @@ holiday.jpg
 
 ## Fill modes
 
+- **auto** (default) picks for you:
+  - Artwork with a plain border, like most designed posters, product shots and scans, is kept whole. The page is extended in the image's own border color, with matching paper grain, so frames and credit lines aren't cut off.
+  - Photos are cropped to fill the page when that removes 20% or less.
+  - Anything else is kept whole on white.
 - **crop**: scales the image to cover the page and cuts what overflows. Nothing is distorted; the edges are lost.
 - **extend**: scales the image to fit inside the page, then fills the empty bands by mirroring the image edges outward and blurring them. The image itself is not changed. Works best when the image's shape is close to A4. With a very wide image on a portrait page, blurred copies of the content show in the bands.
 - **fit**: scales the image to fit inside the page and leaves a white border.

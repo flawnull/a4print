@@ -18,20 +18,20 @@ class UpscalerMissing(RuntimeError):
 
 
 def find_realesrgan():
-    """Path to the Real-ESRGAN binary, from $A4PRINT_REALESRGAN or PATH."""
+    """Path to the Real-ESRGAN binary: $A4PRINT_REALESRGAN, then PATH, then
+    the copy a4print-setup-ai installs."""
+    from . import setup_ai
+
     candidate = os.environ.get(ENV_VAR)
     if candidate and Path(candidate).is_file():
         return candidate
-    found = shutil.which(BINARY)
+    found = shutil.which(BINARY) or setup_ai.installed_binary()
     if found:
-        return found
+        return str(found)
     raise UpscalerMissing(
-        f"--ai needs Real-ESRGAN, but '{BINARY}' was not found.\n"
-        "  1. Download the build for your system from\n"
-        "     https://github.com/xinntao/Real-ESRGAN/releases (realesrgan-ncnn-vulkan-*.zip)\n"
-        "  2. Unzip it and add that folder to your PATH,\n"
-        f"     or set {ENV_VAR}=/full/path/to/{BINARY}\n"
-        "Or run without --ai to use Lanczos resizing."
+        "--ai needs Real-ESRGAN, which isn't installed yet. Install it with:\n"
+        "  a4print-setup-ai\n"
+        "(a one-time 50 MB download), or run without --ai to use Lanczos resizing."
     )
 
 

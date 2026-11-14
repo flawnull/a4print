@@ -16,6 +16,12 @@ def with_noise(arr, sigma, seed=0):
     return np.clip(arr + rng.normal(0, sigma, arr.shape), 0, 255).astype(np.uint8)
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path_factory, monkeypatch):
+    """Keep tests away from a real ~/.a4print (an installed Real-ESRGAN)."""
+    monkeypatch.setenv("A4PRINT_HOME", str(tmp_path_factory.mktemp("a4print_home")))
+
+
 @pytest.fixture
 def portrait():
     """600 x 900 gradient with a red disc in the middle."""

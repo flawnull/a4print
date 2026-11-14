@@ -24,6 +24,7 @@ heic = ["pillow-heif>=1.2"]
 [project.scripts]
 a4print = "a4print.cli:main"
 a4print-web = "a4print.web:main"
+a4print-setup-ai = "a4print.setup_ai:main"
 
 [tool.setuptools]
 packages = ["a4print"]
