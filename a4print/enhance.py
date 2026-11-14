@@ -10,14 +10,22 @@ import cv2
 import numpy as np
 
 
-def is_grayscale(arr, tolerance=6.0):
-    """True if the image has no real color (B&W photo, sepia-free scan)."""
+def is_grayscale(arr, tolerance=6.0, max_colored=0.0005):
+    """True if the image has no real color (a B&W photo or scan).
+
+    Most pixels must be near-neutral (99th percentile of Lab chroma below
+    `tolerance`), and almost none (`max_colored`, 0.05%) may be clearly
+    colored. The second check keeps a small colored logo or stamp from
+    being turned gray.
+    """
     if arr.ndim == 2:
         return True
     small = _shrink(arr, 512)
     lab = cv2.cvtColor(small, cv2.COLOR_RGB2LAB).astype(np.float32)
     chroma = np.hypot(lab[..., 1] - 128, lab[..., 2] - 128)
-    return float(np.percentile(chroma, 99)) < tolerance
+    if float(np.percentile(chroma, 99)) >= tolerance:
+        return False
+    return float((chroma > 3 * tolerance).mean()) <= max_colored
 
 
 def to_gray(arr):
@@ -40,31 +48,61 @@ def inpaint_regions(arr, regions, radius=5):
 
 
 def estimate_noise(arr):
-    """Gaussian noise sigma, Immerkaer's method (1996). Clean photos score ~1-2."""
+    """Noise level (sigma, in 0-255 levels) measured in the flat half of the image.
+
+    Immerkaer's (1996) operator, restricted to pixels with below-median
+    gradient as in Tai & Yang (2008), so edges and texture (hair, leaves,
+    fabric) aren't mistaken for noise. Clean photos score below 2.
+    """
     # Crop rather than shrink: shrinking would average the noise away.
     h, w = arr.shape[:2]
     y, x = max(0, (h - 1600) // 2), max(0, (w - 1600) // 2)
     gray = to_gray(arr[y:y + 1600, x:x + 1600]).astype(np.float64)
     kernel = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=np.float64)
-    response = cv2.filter2D(gray, -1, kernel)[1:-1, 1:-1]
-    h, w = gray.shape
-    return float(np.abs(response).sum() * math.sqrt(math.pi / 2) / (6 * (w - 2) * (h - 2)))
+    response = np.abs(cv2.filter2D(gray, -1, kernel))[1:-1, 1:-1]
+    gradient = np.hypot(cv2.Sobel(gray, cv2.CV_64F, 1, 0), cv2.Sobel(gray, cv2.CV_64F, 0, 1))[1:-1, 1:-1]
+    flat = gradient <= np.median(gradient)
+    return float(response[flat].mean() * math.sqrt(math.pi / 2) / 6)
 
 
-def denoise(arr, strength=1.0, skip_below=2.5):
-    """Light non-local-means denoise. Skipped when the image is already clean.
+def denoise(arr, strength=1.0, jpeg_quality=None, skip_below=2.5, keep_grain=0.3):
+    """Light non-local-means cleanup, run only when the image needs it.
 
-    Returns (array, sigma, applied).
+    Two reasons can trigger it, and they share one pass so the image is
+    never smoothed twice:
+      - sensor noise above `skip_below` (phone photos in low light)
+      - heavy JPEG compression, below quality 80 (Pinterest, social media):
+        the 8x8 blocks and color smears would be enlarged on paper.
+
+    For noise, `keep_grain` of the original is blended back in so photos
+    keep a natural texture instead of a plastic, over-smoothed look.
+
+    Returns (array, reason) where reason is "" when nothing was done.
     """
+    if strength <= 0:
+        return arr, ""
     sigma = estimate_noise(arr)
-    if strength <= 0 or sigma < skip_below:
-        return arr, sigma, False
-    h = min(sigma, 10.0) * 0.8 * strength
+    h_noise = 0.4 * min(sigma, 12.0) if sigma >= skip_below else 0.0
+    h_jpeg = (90 - jpeg_quality) / 13 if jpeg_quality is not None and jpeg_quality < 80 else 0.0
+    h = min(max(h_noise, h_jpeg), 7.0) * strength
+    if h < 0.5:
+        return arr, ""
+
     if arr.ndim == 2:
         out = cv2.fastNlMeansDenoising(arr, None, h, 7, 21)
     else:
-        out = cv2.fastNlMeansDenoisingColored(arr, None, h, h, 7, 21)
-    return out, sigma, True
+        # Color smears and chroma noise get a bit more cleanup than detail.
+        out = cv2.fastNlMeansDenoisingColored(arr, None, h, h * 1.5, 7, 21)
+
+    if h_noise and not h_jpeg and keep_grain > 0:
+        out = cv2.addWeighted(out, 1 - keep_grain, arr, keep_grain, 0)
+
+    reasons = []
+    if h_noise:
+        reasons.append(f"noise level {sigma:.1f}")
+    if h_jpeg:
+        reasons.append(f"JPEG quality {jpeg_quality}")
+    return out, ", ".join(reasons)
 
 
 def tone_curve(shadows=0.03, midtones=0.05):

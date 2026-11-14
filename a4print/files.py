@@ -5,11 +5,27 @@ from pathlib import Path
 
 import img2pdf
 import numpy as np
-from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from .layout import A4_MM, DPI
 
-EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
+try:  # iPhone photos (HEIC) need the optional pillow-heif package.
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+
+EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".gif", ".avif", ".heic", ".heif"}
+
+# Standard JPEG luminance quantization table (ITU T.81, Annex K).
+_JPEG_LUMA = [
+    16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55,
+    14, 13, 16, 24, 40, 57, 69, 56, 14, 17, 22, 29, 51, 87, 80, 62,
+    18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99,
+]
 
 _SRGB = ImageCms.createProfile("sRGB")
 SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB).tobytes()
@@ -26,7 +42,12 @@ def list_images(path):
 def load_rgb(path):
     """Open an image as 8-bit sRGB: EXIF rotation applied, transparency on white,
     any embedded color profile (Adobe RGB, Display P3, CMYK...) converted to sRGB."""
-    img = Image.open(path)
+    try:
+        img = Image.open(path)
+    except UnidentifiedImageError:
+        if Path(path).suffix.lower() in (".heic", ".heif") and not HEIF_SUPPORT:
+            raise ValueError("HEIC/HEIF photos need pillow-heif: pip install pillow-heif") from None
+        raise ValueError(f"{Path(path).name} is not an image Pillow can read") from None
     img = ImageOps.exif_transpose(img)
     icc = img.info.get("icc_profile")
 
@@ -51,6 +72,18 @@ def load_rgb(path):
     return np.asarray(img.convert("RGB"))
 
 
+def jpeg_quality(path):
+    """Estimated JPEG quality (1-100) from the file's quantization tables,
+    the way ImageMagick's `identify` does it. None for other formats."""
+    with Image.open(path) as img:
+        tables = getattr(img, "quantization", None) if img.format in ("JPEG", "MPO") else None
+    if not tables or 0 not in tables:
+        return None
+    scale = sum(tables[0]) / sum(_JPEG_LUMA) * 100
+    quality = (200 - scale) / 2 if scale <= 100 else 5000 / scale
+    return int(round(min(max(quality, 1), 100)))
+
+
 def to_rgb_image(arr):
     """Gray arrays become RGB with R = G = B, so prints stay neutral."""
     if arr.ndim == 2:
@@ -62,19 +95,20 @@ def save_png(img, path):
     img.save(path, dpi=(DPI, DPI), icc_profile=SRGB_ICC)
 
 
-def save_pdf(img, path, quality=95):
-    """One A4 page, image edge to edge, no margins.
-
-    The page image is stored as a high-quality JPEG with the sRGB profile,
-    which keeps the PDF at a few MB instead of 20+.
-    """
+def pdf_page(img, quality=95):
+    """Encode one page for the PDF: high-quality JPEG with the sRGB profile.
+    This keeps a PDF page at a few MB instead of 20+; the PNG is the lossless copy."""
     buffer = io.BytesIO()
     img.save(buffer, "JPEG", quality=quality, subsampling=0, dpi=(DPI, DPI), icc_profile=SRGB_ICC)
-    page = (img2pdf.mm_to_pt(A4_MM[0]), img2pdf.mm_to_pt(A4_MM[1]))
-    if img.width > img.height:
-        page = page[::-1]
-    layout = img2pdf.get_layout_fun(page)
-    Path(path).write_bytes(img2pdf.convert(buffer.getvalue(), layout_fun=layout))
+    return buffer.getvalue()
+
+
+def save_pdf(pages, path):
+    """Write encoded pages (from pdf_page) as A4 pages, image edge to edge.
+    Each page turns to match its image, so portrait and landscape can mix."""
+    a4 = (img2pdf.mm_to_pt(A4_MM[0]), img2pdf.mm_to_pt(A4_MM[1]))
+    layout = img2pdf.get_layout_fun(a4, auto_orient=True)
+    Path(path).write_bytes(img2pdf.convert(list(pages), layout_fun=layout))
 
 
 def save_preview(before, after, path, height=1200):

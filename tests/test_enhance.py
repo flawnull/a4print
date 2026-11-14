@@ -15,12 +15,43 @@ def test_noise_estimate_and_auto_skip():
     noisy = with_noise(clean, 8)
     assert enhance.estimate_noise(noisy) > 4 * enhance.estimate_noise(clean)
 
-    out, _, applied = enhance.denoise(clean)
-    assert not applied and out is clean
+    out, reason = enhance.denoise(clean)
+    assert reason == "" and out is clean
 
-    out, _, applied = enhance.denoise(noisy)
-    assert applied
+    out, reason = enhance.denoise(noisy)
+    assert "noise" in reason
     assert enhance.estimate_noise(out) < enhance.estimate_noise(noisy)
+
+
+def test_texture_is_not_mistaken_for_noise():
+    """Fine, clean detail (fabric, hair, foliage) must not trigger denoise."""
+    y, x = np.mgrid[0:800, 0:800]
+    texture = 128 + 60 * np.sign(np.sin(x / 1.7) * np.sin(y / 2.3))
+    texture = np.dstack([texture] * 3).astype(np.uint8)
+    texture[:, :400] = 140  # a flat area, like sky or a wall
+    _, reason = enhance.denoise(texture)
+    assert reason == ""
+
+
+def test_denoise_keeps_some_grain():
+    noisy = with_noise(gradient(600, 600), 8)
+    full, _ = enhance.denoise(noisy, keep_grain=0)
+    gentle, _ = enhance.denoise(noisy)
+    assert enhance.estimate_noise(full) < enhance.estimate_noise(gentle) < enhance.estimate_noise(noisy)
+
+
+def test_low_jpeg_quality_triggers_cleanup():
+    clean = gradient(400, 400)
+    _, reason = enhance.denoise(clean, jpeg_quality=45)
+    assert "JPEG quality 45" in reason
+    _, reason = enhance.denoise(clean, jpeg_quality=92)
+    assert reason == ""
+
+
+def test_small_color_logo_keeps_image_in_color(bw_photo):
+    img = bw_photo.copy()
+    img[20:50, 20:70] = (220, 30, 30)  # 0.2% of the image
+    assert not enhance.is_grayscale(img)
 
 
 def test_tone_curve_lifts_shadows_keeps_white():

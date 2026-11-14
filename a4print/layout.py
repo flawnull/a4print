@@ -149,3 +149,18 @@ def trim_border(arr, tolerance=18, min_match=0.98):
     if x1 - x0 < w * 0.1 or y1 - y0 < h * 0.1:
         return arr, (0, 0, w, h)  # Would remove nearly everything.
     return arr[y0:y1, x0:x1].copy(), (x0, y0, x1, y1)
+
+
+def print_quality(dpi):
+    """Plain-language verdict for an effective DPI on paper."""
+    if dpi >= 240:
+        return "excellent"
+    if dpi >= 150:
+        return "good"
+    if dpi >= 100:
+        return "fine from a distance, soft up close"
+    return "low: will look soft or blocky up close"
+
+
+def mm_to_px(mm):
+    return round(mm * DPI / 25.4)

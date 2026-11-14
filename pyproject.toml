@@ -17,7 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "pikepdf"]
+heic = ["pillow-heif>=0.16"]
 
 [project.scripts]
 a4print = "a4print.cli:main"

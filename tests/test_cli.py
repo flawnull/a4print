@@ -4,7 +4,7 @@ import pytest
 from PIL import Image, ImageCms
 
 from a4print import cli, upscale
-from a4print.pipeline import Options, prepare
+from a4print.pipeline import Options, prepare, process_file
 
 
 def test_folder_run_writes_png_pdf_preview(tmp_path, save, portrait, landscape):
@@ -52,7 +52,8 @@ def test_fit_leaves_white_side_bars(portrait):
 def test_low_dpi_warning(portrait):
     _, report = prepare(portrait, Options())
     assert report.effective_dpi < 150
-    assert any("low resolution" in w for w in report.warnings)
+    assert any("below 150 DPI" in w for w in report.warnings)
+    assert report.quality.startswith("low")
 
 
 def test_bw_output_is_neutral(bw_photo):
@@ -95,3 +96,32 @@ def test_ai_calls_realesrgan(tmp_path, portrait, monkeypatch):
     page, report = prepare(portrait, Options(ai=True))
     assert page.shape == (3508, 2480, 3)
     assert report.resize_method == "Real-ESRGAN + Lanczos"
+
+
+def test_margin_adds_white_frame(landscape):
+    page, report = prepare(landscape, Options(margin=5, enhance=False))
+    assert page.shape == (2480, 3508, 3)
+    frame = round(5 * 300 / 25.4)  # 59 px
+    assert (page[:frame] == 255).all() and (page[:, -frame:] == 255).all()
+    assert not (page[frame + 5, frame + 5] == 255).all()
+    # Resolution is measured on the printable area, which is smaller than the sheet.
+    _, borderless = prepare(landscape, Options(enhance=False))
+    assert report.effective_dpi > borderless.effective_dpi
+
+
+def test_combine_writes_one_pdf_with_mixed_orientations(tmp_path, save, portrait, landscape):
+    pikepdf = pytest.importorskip("pikepdf")
+    save(portrait, "a.png")
+    save(landscape, "b.png")
+    out = tmp_path / "out"
+    assert cli.main([str(tmp_path), "-o", str(out), "--combine", "--no-preview"]) == 0
+    with pikepdf.open(out / "a4print_all.pdf") as pdf:
+        sizes = [tuple(round(float(v) / 72 * 25.4) for v in p.mediabox[2:]) for p in pdf.pages]
+    assert sizes == [(210, 297), (297, 210)]
+
+
+def test_jpeg_cleanup_reported(tmp_path, landscape):
+    path = tmp_path / "pin.jpg"
+    Image.fromarray(landscape).save(path, quality=40)
+    report, _ = process_file(path, tmp_path / "o", Options(pdf=False, preview=False))
+    assert "JPEG quality 40" in report.cleanup

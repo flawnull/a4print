@@ -35,6 +35,8 @@ def build_parser():
                    help="crop: fill the page and cut overflow (default); extend: fit and fill the "
                         "rest with mirrored, blurred edges; fit: fit inside a white border")
     g.add_argument("--anchor", choices=ANCHORS, default="center", help="which part to keep when cropping")
+    g.add_argument("--margin", type=float, default=0.0, metavar="MM",
+                   help="white margin in mm, for printers that can't print borderless (default: 0)")
     g.add_argument("--trim-border", action="store_true", help="remove plain outer margins first")
     g.add_argument("--trim-tolerance", type=int, default=18, metavar="N",
                    help="how far (0-255) a pixel may differ from the margin color (default: %(default)s)")
@@ -62,12 +64,14 @@ def build_parser():
     g = p.add_argument_group("output")
     g.add_argument("--no-pdf", action="store_true", help="don't write the PDF")
     g.add_argument("--no-preview", action="store_true", help="don't write the before/after preview")
+    g.add_argument("--combine", action="store_true",
+                   help="also write all pages into one PDF (a4print_all.pdf), handy for printing a folder")
     return p
 
 
 def options_from_args(args):
     return Options(
-        orientation=args.orientation, fill=args.fill, anchor=args.anchor,
+        orientation=args.orientation, fill=args.fill, anchor=args.anchor, margin=args.margin,
         trim_border=args.trim_border, trim_tolerance=args.trim_tolerance,
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
@@ -97,11 +101,16 @@ def main(argv=None):
             print(f"error: {exc}", file=sys.stderr)
             return 3
 
+    if args.margin < 0:
+        print("error: --margin can't be negative", file=sys.stderr)
+        return 2
+
     failures = 0
+    pages = []
     for path in images:
         print(f"{path.name}")
         try:
-            r = process_file(path, args.output_dir, opts)
+            r, pdf_page = process_file(path, args.output_dir, opts)
         except Exception as exc:  # Keep going through a folder.
             failures += 1
             print(f"  error: {exc}", file=sys.stderr)
@@ -112,14 +121,19 @@ def main(argv=None):
             x0, y0, x1, y1 = r.trimmed
             print(f"  trimmed     to {x1 - x0} x {y1 - y0} px")
         print(f"  page        A4 {r.orientation}, {opts.fill}, {r.resize_method}")
-        print(f"  resolution  {r.effective_dpi:.0f} DPI effective at A4")
+        print(f"  resolution  {r.effective_dpi:.0f} DPI at A4, {r.quality}")
         if opts.enhance:
-            state = "applied" if r.denoised else "skipped (clean)"
-            print(f"  denoise     {state}, noise level {r.noise_sigma:.1f}")
+            print(f"  cleanup     {'applied (' + r.cleanup + ')' if r.cleanup else 'not needed'}")
         for warning in r.warnings:
             print(f"  warning     {warning}")
         for out in r.outputs:
             print(f"  saved       {out}")
+        pages.append(pdf_page)
+
+    if args.combine and pages:
+        combined = Path(args.output_dir) / "a4print_all.pdf"
+        files.save_pdf(pages, combined)
+        print(f"\n{len(pages)} pages saved to {combined}")
 
     return 1 if failures else 0
 
