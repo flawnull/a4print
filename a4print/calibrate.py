@@ -20,6 +20,7 @@ test page measures both, and the answers become the defaults for
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -45,7 +46,18 @@ def load_settings():
         data = json.loads(settings_path().read_text())
     except (OSError, ValueError):
         return {}
-    return {k: float(v) for k, v in data.items() if k in ("shadows", "midtones")}
+    if not isinstance(data, dict):
+        return {}
+    limits = {"shadows": (0.0, 0.2), "midtones": (0.0, 0.5)}
+    settings = {}
+    for key, (low, high) in limits.items():
+        try:
+            value = float(data[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(value):   # a damaged or edited file can't feed in NaN or huge values
+            settings[key] = min(max(value, low), high)
+    return settings
 
 
 def answers_to_settings(black, gray):

@@ -65,7 +65,8 @@ def build_parser():
     g = p.add_argument_group("cleanup")
     g.add_argument("--remove", type=region, action="append", default=[], metavar="x,y,w,h",
                    help="erase a rectangle by inpainting, in pixels of the original image or "
-                        "percentages (70%%,90%%,30%%,10%%); repeatable. --grid helps find them")
+                        "percentages (70%%,90%%,30%%,10%%); repeatable. For date stamps and marks on "
+                        "your own photos, or images you may edit. --grid helps find them")
     g.add_argument("--grid", action="store_true",
                    help="only save name_grid.jpg, the image with labeled coordinates, for --remove")
     g.add_argument("--denoise", type=float, default=1.0, metavar="S",

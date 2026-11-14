@@ -238,11 +238,21 @@ def make_handler(app):
                 return False
             return True
 
+        def end_headers(self):
+            # On every response, errors included: no MIME sniffing, never
+            # shown inside another site's frame (clickjacking), no referrer
+            # leaks, and results aren't kept in the browser cache.
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
         def _send(self, status, body, content_type, extra=None):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("X-Content-Type-Options", "nosniff")
+
             for key, value in (extra or {}).items():
                 self.send_header(key, value)
             self.end_headers()
@@ -258,7 +268,8 @@ def make_handler(app):
             if url.path == "/":
                 self._send(HTTPStatus.OK, PAGE.encode(), "text/html; charset=utf-8",
                            {"Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; "
-                                                       "script-src 'unsafe-inline'; img-src 'self' blob:"})
+                                                       "script-src 'unsafe-inline'; img-src 'self' blob:; "
+                                                       "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"})
             elif url.path == "/status":
                 self._json(HTTPStatus.OK, app.status())
             elif url.path == "/test-page.pdf":
@@ -291,6 +302,12 @@ def make_handler(app):
         def do_POST(self):
             if not self._local_only():
                 return
+            # Second layer behind the custom header: browsers send Origin on
+            # POST, and only this page's own origin is accepted.
+            origin = self.headers.get("Origin")
+            if origin and urlparse(origin).hostname not in ("127.0.0.1", "localhost", "::1"):
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return
             url = urlparse(self.path)
             # Other websites can't set this header without a CORS preflight,
             # which this server never approves, so they can't post here.
@@ -307,7 +324,10 @@ def make_handler(app):
             if url.path == "/settings":
                 self._json(*app.save_print_settings(parse_qs(url.query)))
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
             if not 0 < length <= MAX_UPLOAD_BYTES:
                 self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "file is empty or over 300 MB"})
                 return

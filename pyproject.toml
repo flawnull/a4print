@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a4print"
-version = "0.7.0"
+version = "0.8.0"
 description = "Prepare any image for borderless A4 printing at 300 DPI"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
-    "Pillow>=10.1",
-    "opencv-python-headless>=4.8",
+    "Pillow>=10.3",           # 10.3 fixes CVE-2024-28219
+    "opencv-python-headless>=4.8.1.78",   # bundled libwebp fix for CVE-2023-4863
     "numpy>=1.24",
     "img2pdf>=0.5",
     "pikepdf>=8",
@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7", "scikit-image"]
 heic = ["pillow-heif>=1.2"]
-max = ["torch>=2.1", "spandrel>=0.4"]
+max = ["torch>=2.6", "spandrel>=0.4"]   # torch 2.6 fixes CVE-2025-32434 (model loading)
 
 [project.scripts]
 a4print = "a4print.cli:main"

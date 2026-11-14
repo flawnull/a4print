@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -58,15 +59,22 @@ def supported():
     return sys.platform in BUILDS
 
 
-def download(url, dest, expected_sha256, progress=None):
+def download(url, dest, expected_sha256, progress=None, max_bytes=300_000_000):
+    """Download `url` to `dest` and check its SHA-256. Only https (and
+    file: URLs, which the tests use) are allowed, and a download that grows
+    past `max_bytes` is stopped, so a misbehaving server can't fill the disk."""
+    if urllib.parse.urlsplit(url).scheme not in ("https", "file"):
+        raise SetupError(f"refusing to download from a non-https address: {url}")
     digest = hashlib.sha256()
-    with urllib.request.urlopen(url, timeout=60) as response, open(dest, "wb") as out:
+    with urllib.request.urlopen(url, timeout=60) as response, open(dest, "wb") as out:  # nosec B310: scheme checked
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
         while chunk := response.read(1 << 20):
+            done += len(chunk)
+            if done > max_bytes:
+                raise SetupError("the download is much larger than expected, so it was stopped")
             out.write(chunk)
             digest.update(chunk)
-            done += len(chunk)
             if progress:
                 progress(done, total)
     if digest.hexdigest() != expected_sha256:

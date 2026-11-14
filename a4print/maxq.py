@@ -1,6 +1,6 @@
 """Maximum quality mode: newer upscaling models run with PyTorch.
 
-    pipx inject a4print torch spandrel     # once, if a4print was installed with pipx
+    pipx inject a4print 'torch>=2.6' spandrel   # once, with pipx
     a4print-setup-ai --max                 # downloads the two models (~100 MB)
     a4print photo.jpg --max-quality
 
@@ -21,6 +21,7 @@ Models are loaded with spandrel (MIT), which only unpickles model weights,
 and each file's SHA-256 is checked after download.
 """
 
+import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,7 +56,7 @@ MODELS = {
 }
 
 INSTALL_HINT = ("maximum quality needs PyTorch and spandrel. Install them with "
-                "'pipx inject a4print torch spandrel' (or 'pip install torch spandrel'), "
+                "'pipx inject a4print torch spandrel' (or 'pip install torch spandrel'; PyTorch 2.6 or newer), "
                 "then run 'a4print-setup-ai --max'.")
 
 _loaded = {}
@@ -118,12 +119,22 @@ def device():
 
 def _model(kind):
     if kind not in _loaded:
-        import spandrel
-
         path = models_dir() / MODELS[kind].file
         if not path.is_file():
             raise MaxQualityUnavailable("the maximum quality models aren't downloaded yet; "
                                         "run 'a4print-setup-ai --max'")
+        # Check the file is still exactly the one that was tested, in case it
+        # was damaged or replaced since it was downloaded.
+        digest = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(block)
+        if digest.hexdigest() != MODELS[kind].sha256:
+            raise MaxQualityUnavailable(f"{path.name} doesn't match its expected checksum; "
+                                        "delete it and run 'a4print-setup-ai --max' again")
+
+        import spandrel
+
         descriptor = spandrel.ModelLoader().load_from_file(str(path))
         _loaded[kind] = (descriptor.model.to(device()).eval(), descriptor.scale)
     return _loaded[kind]

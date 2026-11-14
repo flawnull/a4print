@@ -83,6 +83,10 @@ def load_rgb(path, info=None):
         raise ValueError(f"{name} is not an image Pillow can read") from None
     except Image.DecompressionBombError:
         raise ValueError(f"{name} is too large: over {MAX_PIXELS // 1_000_000} megapixels") from None
+    # Pillow only refuses at twice MAX_IMAGE_PIXELS, so check here, before
+    # anything is decoded: a crafted file could otherwise need gigabytes.
+    if img.width * img.height > MAX_PIXELS:
+        raise ValueError(f"{name} is too large: over {MAX_PIXELS // 1_000_000} megapixels")
 
     try:
         return _to_srgb_array(_reduce_if_huge(img, info), name)
