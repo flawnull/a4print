@@ -53,6 +53,7 @@ class Report:
     resize_method: str = ""
     poster: object = None          # poster.Plan when making a poster
     warnings: list = field(default_factory=list)
+    tips: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
 
 
@@ -67,6 +68,8 @@ def clean_source(arr, opts, report):
         arr, box = layout.trim_border(arr, opts.trim_tolerance)
         if arr.shape[1::-1] != tuple(report.source_size):
             report.trimmed = box
+    elif layout.has_plain_border(arr, opts.trim_tolerance):
+        report.tips.append("the image has a plain border; removing it (--trim-border) fills the page better")
 
     # Black and white: work in one channel so no color cast can creep in.
     report.grayscale = enhance.is_grayscale(arr)
@@ -92,7 +95,7 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     report.quality = layout.print_quality(report.effective_dpi)
 
     if report.effective_dpi < opts.min_dpi:
-        hint = "use a larger version of the image if you can" + ("" if opts.ai else ", or try --ai")
+        hint = "use a larger version of the image if you can" + ("" if opts.ai else ", or try AI upscaling (--ai)")
         report.warnings.append(f"below {opts.min_dpi:.0f} DPI: {hint}")
 
     # Clean noise and JPEG artifacts, and scale. When enlarging, clean first

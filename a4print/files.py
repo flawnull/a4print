@@ -5,6 +5,7 @@ from pathlib import Path
 
 import img2pdf
 import numpy as np
+import pikepdf
 from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from .layout import A4_MM, DPI
@@ -131,7 +132,13 @@ def save_pdf(pages, path):
     Each page turns to match its image, so portrait and landscape can mix."""
     a4 = (img2pdf.mm_to_pt(A4_MM[0]), img2pdf.mm_to_pt(A4_MM[1]))
     layout = img2pdf.get_layout_fun(a4, auto_orient=True)
-    Path(path).write_bytes(img2pdf.convert(list(pages), layout_fun=layout))
+    raw = img2pdf.convert(list(pages), layout_fun=layout)
+
+    # Ask PDF viewers to print at 100% instead of "fit to page", which would
+    # shrink the page and add a border. Acrobat and most viewers honor it.
+    with pikepdf.open(io.BytesIO(raw)) as pdf:
+        pdf.Root.ViewerPreferences = pikepdf.Dictionary(PrintScaling=pikepdf.Name.None_)
+        pdf.save(path)
 
 
 def save_preview(before, after, path, label="After (A4)", height=1200):

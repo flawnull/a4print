@@ -196,3 +196,11 @@ def test_large_image_is_shrunk_before_cleanup():
     page, report = prepare(noisy_big, Options())
     assert page.shape == (3508, 2480, 3)
     assert report.effective_dpi > 300
+
+
+def test_pdf_asks_viewers_to_print_at_actual_size(tmp_path, save, portrait):
+    import pikepdf
+
+    cli.main([str(save(portrait, "p.png")), "-o", str(tmp_path / "o"), "--no-preview"])
+    with pikepdf.open(tmp_path / "o" / "p_a4.pdf") as pdf:
+        assert pdf.Root.ViewerPreferences.PrintScaling == pikepdf.Name.None_

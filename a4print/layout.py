@@ -106,6 +106,17 @@ def extend_background(fitted, tgt_w, tgt_h, blur=0.03, feather=0.06):
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
 
 
+def has_plain_border(arr, tolerance=18, min_share=0.02):
+    """True if trim_border would remove at least `min_share` of the width or
+    height (checked on a small copy, so it's fast on big photos)."""
+    h, w = arr.shape[:2]
+    scale = min(1.0, 600 / max(h, w))
+    small = cv2.resize(arr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    trimmed, _ = trim_border(small, tolerance)
+    sh, sw = small.shape[:2]
+    return trimmed.shape[0] <= sh * (1 - min_share) or trimmed.shape[1] <= sw * (1 - min_share)
+
+
 def _strong_blur(arr, sigma, factor=8):
     """Large Gaussian blur, done on a 1/8 size copy for speed."""
     h, w = arr.shape[:2]

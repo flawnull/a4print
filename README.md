@@ -62,6 +62,18 @@ If `--ai` is used and the tool can't be found, a4print stops and tells you how t
 
 Speed depends on your hardware. With a graphics card it takes a few seconds per image. Without one it still works through a software Vulkan driver (on Linux, `mesa-vulkan-drivers`), but expect about 3 minutes for a 500 px photo.
 
+## In your browser
+
+Prefer not to use the terminal? Start the web page:
+
+```bash
+a4print-web
+```
+
+It opens in your browser. Drop in one or more images, pick the options (fill, poster size, margin, border removal, AI upscaling when Real-ESRGAN is installed), and click **Make print files**. Each image shows a before/after preview, the same report as the command line, and download links for the PDF and PNG.
+
+Everything runs on your computer: the page only listens on `127.0.0.1` and refuses requests from other websites. Uploaded images and results are deleted when you stop it with Ctrl+C.
+
 ## Usage
 
 Print a photo, filling the page:
@@ -270,7 +282,7 @@ A poster on a wall is usually seen from a meter or more away, so "fine from a di
 
 ## Printing tips
 
-- In the print dialog, choose "Actual size" or 100% scale, not "Fit to page".
+- In the print dialog, choose "Actual size" or 100% scale, not "Fit to page". a4print's PDFs ask for this already, and Acrobat and most viewers follow it, but check the dialog once.
 - Pick borderless printing if your printer supports it. If it doesn't, use `--margin 5` so the printer doesn't crop or shrink the page itself.
 - Choose photo paper and the matching paper type in the driver, which matters more than any setting here.
 

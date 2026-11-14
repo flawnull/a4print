@@ -69,3 +69,10 @@ def test_trim_border_removes_beige_margin(portrait):
 def test_trim_border_leaves_busy_edges_alone(portrait):
     trimmed, box = layout.trim_border(portrait)
     assert box == (0, 0, 600, 900)
+
+
+def test_plain_border_hint(portrait):
+    framed = np.full((1100, 800, 3), 255, np.uint8)
+    framed[100:1000, 100:700] = portrait
+    assert layout.has_plain_border(framed)
+    assert not layout.has_plain_border(portrait)

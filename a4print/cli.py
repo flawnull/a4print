@@ -108,6 +108,31 @@ def options_from_args(args):
     )
 
 
+def describe(r, opts):
+    """The report for one image as (label, text) lines, shared by the CLI
+    and the web page."""
+    w, h = r.source_size
+    lines = [("source", f"{w} x {h} px" + ("  (B&W, kept neutral)" if r.grayscale else ""))]
+    if r.trimmed:
+        x0, y0, x1, y1 = r.trimmed
+        lines.append(("trimmed", f"to {x1 - x0} x {y1 - y0} px"))
+    if r.poster:
+        p = r.poster
+        size = f"{p.poster_mm[0] / 10:.0f} x {p.poster_mm[1] / 10:.0f} cm"
+        lines.append(("poster", f"{p.cols}x{p.rows} {p.sheet_orientation} A4 sheets, {size}"
+                                + (f", {p.size_name}" if p.size_name else "")))
+        lines.append(("page", f"{opts.fill}, {r.resize_method}"))
+        lines.append(("resolution", f"{r.effective_dpi:.0f} DPI on the poster, {r.quality}"))
+    else:
+        lines.append(("page", f"A4 {r.orientation}, {opts.fill}, {r.resize_method}"))
+        lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at A4, {r.quality}"))
+    if opts.enhance:
+        lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
+    lines += [("warning", w) for w in r.warnings]
+    lines += [("tip", t) for t in r.tips]
+    return lines
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     opts = options_from_args(args)
@@ -154,25 +179,8 @@ def main(argv=None):
             failures += 1
             print(f"  error: {exc}", file=sys.stderr)
             continue
-        w, h = r.source_size
-        print(f"  source      {w} x {h} px{'  (B&W, kept neutral)' if r.grayscale else ''}")
-        if r.trimmed:
-            x0, y0, x1, y1 = r.trimmed
-            print(f"  trimmed     to {x1 - x0} x {y1 - y0} px")
-        if r.poster:
-            p = r.poster
-            size = f"{p.poster_mm[0] / 10:.0f} x {p.poster_mm[1] / 10:.0f} cm"
-            print(f"  poster      {p.cols}x{p.rows} {p.sheet_orientation} A4 sheets, {size}"
-                  f"{', ' + p.size_name if p.size_name else ''}")
-            print(f"  page        {opts.fill}, {r.resize_method}")
-            print(f"  resolution  {r.effective_dpi:.0f} DPI on the poster, {r.quality}")
-        else:
-            print(f"  page        A4 {r.orientation}, {opts.fill}, {r.resize_method}")
-            print(f"  resolution  {r.effective_dpi:.0f} DPI at A4, {r.quality}")
-        if opts.enhance:
-            print(f"  cleanup     {'applied (' + r.cleanup + ')' if r.cleanup else 'not needed'}")
-        for warning in r.warnings:
-            print(f"  warning     {warning}")
+        for label, text in describe(r, opts):
+            print(f"  {label:<11} {text}")
         for out in r.outputs:
             print(f"  saved       {out}")
         pages.extend(pdf_pages)
