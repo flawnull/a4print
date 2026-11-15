@@ -1,0 +1,32 @@
+name: Bug report
+description: Something printed wrong, crashed, or didn't work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got. Screenshots of the preview help a lot.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command or web page settings
+      placeholder: a4print photo.jpg --poster 2x2 --ai
+  - type: textarea
+    id: output
+    attributes:
+      label: a4print's output
+      description: The report lines it printed, or the error.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: Output of `a4print --version`, and your system (for example macOS 15 on Apple Silicon).
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: Please only attach images you're allowed to share. For security problems, use the Security tab's private reporting instead of an issue.

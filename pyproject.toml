@@ -1,14 +1,33 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "a4print"
 version = "0.8.0"
-description = "Prepare any image for borderless A4 printing at 300 DPI"
+description = "Print-ready A4 pages and wall posters from any image, with local AI upscaling that stays true to the original"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.10"
+authors = [{ name = "flawnull" }]
+keywords = ["print", "a4", "poster", "upscaling", "super-resolution", "real-esrgan", "image-processing", "pdf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Printing",
+]
 dependencies = [
     "Pillow>=10.3",           # 10.3 fixes CVE-2024-28219
     "opencv-python-headless>=4.8.1.78",   # bundled libwebp fix for CVE-2023-4863
@@ -16,6 +35,12 @@ dependencies = [
     "img2pdf>=0.5",
     "pikepdf>=8",
 ]
+
+[project.urls]
+Homepage = "https://github.com/flawnull/a4print"
+Documentation = "https://github.com/flawnull/a4print/blob/main/docs/guide.md"
+Changelog = "https://github.com/flawnull/a4print/blob/main/CHANGELOG.md"
+Issues = "https://github.com/flawnull/a4print/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "scikit-image"]
@@ -29,10 +54,10 @@ a4print-setup-ai = "a4print.setup_ai:main"
 a4print-calibrate = "a4print.calibrate:main"
 
 [tool.setuptools]
-packages = ["a4print"]
+packages = ["a4print", "a4print.data"]
 
 [tool.setuptools.package-data]
-a4print = ["data/*.onnx"]
+"a4print.data" = ["*.onnx"]
 
 [tool.ruff]
 line-length = 120

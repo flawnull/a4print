@@ -7,15 +7,19 @@
 [![tests](https://github.com/flawnull/a4print/actions/workflows/tests.yml/badge.svg)](https://github.com/flawnull/a4print/actions/workflows/tests.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![macOS | Windows | Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Windows%20%7C%20Linux-555)
-[![License: MIT](https://img.shields.io/badge/license-MIT-2f5d50)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2f5d50)](https://github.com/flawnull/a4print/blob/main/LICENSE)
 
-![A 600 x 400 px photo of an espresso cup becomes a print-ready A4 page; a close-up at print size compares a plain enlargement of the spoon with a4print's sharper result](docs/images/hero.jpg)
+![A 600 x 400 px photo of an espresso cup becomes a print-ready A4 page; a close-up at print size compares a plain enlargement of the spoon with a4print's sharper result](https://raw.githubusercontent.com/flawnull/a4print/main/docs/images/hero.jpg)
 
 <sub>A 600 x 400 px download printed on A4 with <code>--max-quality</code>. Photo: Rachel Michetti, CC0, from scikit-image.</sub>
 
 </div>
 
 Most images worth printing are too small: a Pinterest download or a phone screenshot comes out soft and blocky on A4. a4print turns any image into a 300 DPI PDF sized for a home printer, as one page or a poster of several sheets. It fits the image to the page without cutting off what matters, cleans up compression artifacts, and can sharpen with AI models that run on your own computer.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/flawnull/a4print/main/docs/images/demo.gif" width="640" alt="A divider sweeps across a close-up of the spoon at print size: blocky on the plain enlargement side, crisp on the a4print side">
+</p>
 
 ## Quick start
 
@@ -33,7 +37,7 @@ Drop in an image, pick a size, download the PDF. Or from the terminal:
 a4print photo.jpg --poster 2x2 --ai
 ```
 
-New to pipx, or want AI upscaling? See the [install guide](docs/guide.md#install).
+New to pipx, or want AI upscaling? See the [install guide](https://github.com/flawnull/a4print/blob/main/docs/guide.md#install).
 
 ## Features
 
@@ -49,13 +53,13 @@ New to pipx, or want AI upscaling? See the [install guide](docs/guide.md#install
 
 `a4print-web` opens a small page in your browser. Choose images, pick an A4 page or a poster, and click once. Each result says in plain words how sharp the print will be, and a slider compares 5 x 5 cm of the print at actual size: plain enlargement against a4print, centered on a face when there is one.
 
-![The a4print web page: image, print size and AI options on the left; a result with its verdict and a before/after slider on the right](docs/images/web.jpg)
+![The a4print web page: image, print size and AI options on the left; a result with its verdict and a before/after slider on the right](https://raw.githubusercontent.com/flawnull/a4print/main/docs/images/web.jpg)
 
 AI setup is a button on the same page that downloads the official builds, checks their checksums and tests them. Batches download as one PDF. Uploads stay on your machine and are deleted when you stop the server.
 
 ## Posters
 
-<img src="docs/images/poster.jpg" alt="Poster preview: a graphic divided into four A4 sheets labeled A1, A2, B1 and B2" width="300" align="right">
+<img src="https://raw.githubusercontent.com/flawnull/a4print/main/docs/images/poster.jpg" alt="Poster preview: a graphic divided into four A4 sheets labeled A1, A2, B1 and B2" width="300" align="right">
 
 `--poster 2x2` makes a poster of about A2 from four A4 sheets; `3x3` is about A1. a4print picks portrait or landscape sheets to crop the least, keeps a white margin your printer can handle, and labels each sheet with where it goes and which edges to trim.
 
@@ -73,7 +77,7 @@ Upscaling AIs have two habits that hurt a print: they shift tones, and they wipe
 | Skin texture kept | 49% | 100% |
 | Edge sharpness | 1.41x plain | 1.40x plain |
 
-Six AI models were compared before choosing the ones a4print uses, and every default here was measured the same way. The full pipeline, the model comparison and the engineering notes are in [how it works](docs/how-it-works.md).
+Six AI models were compared before choosing the ones a4print uses, and every default here was measured the same way. The full pipeline, the model comparison and the engineering notes are in [how it works](https://github.com/flawnull/a4print/blob/main/docs/how-it-works.md).
 
 ## Built with
 
@@ -98,17 +102,18 @@ a4print/
 
 ## Quality and security
 
-About 150 tests run on Linux, macOS and Windows with Python 3.10 and 3.13, using only generated and public-domain images. AI programs and models are downloaded from their authors' releases and checked against pinned SHA-256 checksums; the web page refuses requests from other websites. Details in [SECURITY.md](SECURITY.md).
+About 150 tests run on Linux, macOS and Windows with Python 3.10 and 3.13, using only generated and public-domain images. AI programs and models are downloaded from their authors' releases and checked against pinned SHA-256 checksums; the web page refuses requests from other websites. Details in [SECURITY.md](https://github.com/flawnull/a4print/blob/main/SECURITY.md).
 
 Print only images you have the right to use. `--remove`, which erases date stamps and marks, is meant for your own photos or images you're allowed to edit.
 
 ## Docs
 
-- [Guide](docs/guide.md): install, every option, posters, calibration, common problems
-- [How it works](docs/how-it-works.md): the pipeline, the AI merge, model comparison, engineering notes
-- [Security](SECURITY.md)
-- [Changelog](CHANGELOG.md)
+- [Guide](https://github.com/flawnull/a4print/blob/main/docs/guide.md): install, every option, posters, calibration, common problems
+- [How it works](https://github.com/flawnull/a4print/blob/main/docs/how-it-works.md): the pipeline, the AI merge, model comparison, engineering notes
+- [Security](https://github.com/flawnull/a4print/blob/main/SECURITY.md)
+- [Changelog](https://github.com/flawnull/a4print/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/flawnull/a4print/blob/main/CONTRIBUTING.md)
 
 ## License
 
-MIT, see [LICENSE](LICENSE). AI models and bundled components are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT, see [LICENSE](https://github.com/flawnull/a4print/blob/main/LICENSE). AI models and bundled components are credited in [THIRD_PARTY_NOTICES.md](https://github.com/flawnull/a4print/blob/main/THIRD_PARTY_NOTICES.md).
