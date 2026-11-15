@@ -193,6 +193,7 @@ holiday.jpg
 | `--orientation auto\|portrait\|landscape` | `auto` | Auto picks landscape for wide images, portrait otherwise |
 | `--fill auto\|crop\|extend\|fit` | `auto` | See [Fill modes](#fill-modes) |
 | `--anchor center\|top\|bottom\|left\|right` | `center` | Which part to keep when cropping |
+| `--paper a4\|letter\|a3` | `a4` | Paper size. `a4print-calibrate --paper letter` makes Letter the default |
 | `--margin MM` | `0`, posters `6` | White margin around the image, for printers without borderless printing |
 | `--poster COLSxROWS` | off | Split into a poster of several A4 sheets, e.g. `2x2` or `3x3` |
 | `--overlap MM` | `10` | How much neighboring poster sheets overlap, for gluing |
@@ -272,6 +273,8 @@ Then save the answers, for example square 4 and patch C:
 ```bash
 a4print-calibrate --black 4 --gray C
 ```
+
+To make another paper size your default (US Letter, say), add `--paper letter` to any `a4print-calibrate` command; the test page is then printed on that paper too.
 
 From then on every print uses those values for `--shadows` and `--midtones` (flags still override them; `a4print-calibrate --reset` goes back to the standard values). The web page has the same steps under **More options**.
 

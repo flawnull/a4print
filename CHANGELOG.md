@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0
+
+- US Letter and A3 paper: `--paper letter|a3` for pages, posters (sheets of that paper), PDFs and the printer test page. `a4print-calibrate --paper` saves a default.
+- Web page: paper choice next to the print sizes, defaulting to Letter in Letter countries (from the browser's region) and A4 elsewhere; size labels in inches for Letter, computed by the poster planner.
+- Output files are named after the paper (`photo_letter.pdf`).
+- PyPI-ready packaging, publishing workflow, animated demo, social preview, contributing guide and issue forms.
+
 ## 0.8.0
 
 **Security**

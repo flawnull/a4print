@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from . import enhance, files
-from .layout import A4_PORTRAIT
+from .layout import PAPER_NAMES, PAPERS, target_size
 
 BLACK_LEVELS = [3, 6, 9, 12, 16, 20, 25, 30, 36]        # squares 1-9, out of 255
 MIDTONE_CHOICES = {"A": 0.0, "B": 0.05, "C": 0.1, "D": 0.2, "E": 0.3}
@@ -41,7 +41,7 @@ def settings_path():
 
 
 def load_settings():
-    """Saved print settings, e.g. {"shadows": 0.05, "midtones": 0.1}, or {}."""
+    """Saved print settings, e.g. {"shadows": 0.05, "midtones": 0.1, "paper": "letter"}, or {}."""
     try:
         data = json.loads(settings_path().read_text())
     except (OSError, ValueError):
@@ -57,6 +57,8 @@ def load_settings():
             continue
         if math.isfinite(value):   # a damaged or edited file can't feed in NaN or huge values
             settings[key] = min(max(value, low), high)
+    if data.get("paper") in PAPERS:
+        settings["paper"] = data["paper"]
     return settings
 
 
@@ -71,15 +73,17 @@ def answers_to_settings(black, gray):
 
 
 def save_settings(settings):
+    """Save settings, keeping saved values that `settings` doesn't replace."""
+    settings = {**load_settings(), **settings}
     path = settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2))
     return path
 
 
-def test_page():
-    """The test page as an RGB array, A4 portrait at 300 DPI."""
-    w, h = A4_PORTRAIT
+def test_page(paper="a4"):
+    """The test page as an RGB array, portrait at 300 DPI, on `paper`."""
+    w, h = target_size("portrait", paper)
     page = Image.new("RGB", (w, h), "white")
     d = ImageDraw.Draw(page)
     title, body, small = files._font(80), files._font(44), files._font(36)
@@ -126,9 +130,9 @@ def test_page():
     return np.asarray(page)
 
 
-def write_test_page(path):
-    img = files.to_rgb_image(test_page())
-    files.save_pdf([files.pdf_page(img, quality=100)], path)
+def write_test_page(path, paper="a4"):
+    img = files.to_rgb_image(test_page(paper))
+    files.save_pdf([files.pdf_page(img, quality=100)], path, PAPERS[paper])
     return path
 
 
@@ -139,6 +143,8 @@ def main(argv=None):
     parser.add_argument("--black", type=int, metavar="N",
                         help=f"the first square (1-{len(BLACK_LEVELS)}) you can tell apart from black")
     parser.add_argument("--gray", metavar="LETTER", help="the gray patch (A-E) that best matches its stripes")
+    parser.add_argument("--paper", choices=tuple(PAPERS),
+                        help="the paper you print on (a4, letter, a3); saved as a4print's default")
     parser.add_argument("--reset", action="store_true", help="forget the saved settings")
     parser.add_argument("-o", "--output-dir", default=".", help="where to write the test page (default: here)")
     args = parser.parse_args(argv)
@@ -147,11 +153,15 @@ def main(argv=None):
         settings_path().unlink(missing_ok=True)
         print("Saved print settings removed; a4print uses its standard values again.")
         return 0
+    if args.paper:
+        save_settings({"paper": args.paper})
+        print(f"Paper set to {PAPER_NAMES[args.paper]} for every print (--paper still overrides it).")
+    paper = args.paper or load_settings().get("paper", "a4")
     if args.black is None and args.gray is None:
         out = Path(args.output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        path = write_test_page(out / "a4print_test_page.pdf")
-        print(f"Test page saved to {path}")
+        path = write_test_page(out / "a4print_test_page.pdf", paper)
+        print(f"Test page ({PAPER_NAMES[paper]}) saved to {path}")
         print("Print it at 100% / Actual size, then run for example:")
         print("  a4print-calibrate --black 4 --gray C")
         return 0

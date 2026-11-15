@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, calibrate, files, poster, upscale
+from . import __version__, calibrate, files, layout, poster, upscale
 from .layout import ANCHORS
 from .pipeline import Options, process_file
 
@@ -43,6 +43,9 @@ def build_parser():
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     g = p.add_argument_group("layout")
+    g.add_argument("--paper", choices=tuple(layout.PAPERS), default=calibrate.load_settings().get("paper", "a4"),
+                   help="paper size: a4, letter (US, Canada, Mexico) or a3 (default: %(default)s; "
+                        "a4print-calibrate --paper saves your choice)")
     g.add_argument("--orientation", choices=("auto", "portrait", "landscape"), default="auto",
                    help="page orientation; auto follows the image shape (default)")
     g.add_argument("--fill", choices=("auto", "crop", "extend", "fit"), default="auto",
@@ -105,7 +108,7 @@ def build_parser():
 
 def options_from_args(args):
     return Options(
-        orientation=args.orientation, fill=args.fill, anchor=args.anchor, margin=args.margin,
+        paper=args.paper, orientation=args.orientation, fill=args.fill, anchor=args.anchor, margin=args.margin,
         trim_border=args.trim_border, trim_tolerance=args.trim_tolerance,
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
@@ -119,6 +122,7 @@ def options_from_args(args):
 def describe(r, opts):
     """The report for one image as (label, text) lines, shared by the CLI
     and the web page."""
+    paper = layout.PAPER_NAMES[opts.paper]
     w, h = r.source_size
     lines = [("source", f"{w} x {h} px" + ("  (B&W, kept neutral)" if r.grayscale else ""))]
     if r.trimmed:
@@ -127,13 +131,15 @@ def describe(r, opts):
     if r.poster:
         p = r.poster
         size = f"{p.poster_mm[0] / 10:.0f} x {p.poster_mm[1] / 10:.0f} cm"
-        lines.append(("poster", f"{p.cols}x{p.rows} {p.sheet_orientation} A4 sheets, {size}"
+        if opts.paper == "letter":
+            size += f" ({p.poster_mm[0] / 25.4:.0f} x {p.poster_mm[1] / 25.4:.0f} in)"
+        lines.append(("poster", f"{p.cols}x{p.rows} {p.sheet_orientation} {paper} sheets, {size}"
                                 + (f", {p.size_name}" if p.size_name else "")))
         lines.append(("page", f"{_fill_text(r)}, {r.resize_method}"))
         lines.append(("resolution", f"{r.effective_dpi:.0f} DPI on the poster, {r.quality}"))
     else:
-        lines.append(("page", f"A4 {r.orientation}, {_fill_text(r)}, {r.resize_method}"))
-        lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at A4, {r.quality}"))
+        lines.append(("page", f"{paper} {r.orientation}, {_fill_text(r)}, {r.resize_method}"))
+        lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at {paper}, {r.quality}"))
     if opts.enhance:
         lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
     lines += [("warning", w) for w in r.warnings]
@@ -210,7 +216,7 @@ def main(argv=None):
 
     if args.combine and pages:
         combined = Path(args.output_dir) / "a4print_all.pdf"
-        files.save_pdf(pages, combined)
+        files.save_pdf(pages, combined, layout.paper_mm(opts.paper))
         print(f"\n{len(pages)} pages saved to {combined}")
 
     return 1 if failures else 0

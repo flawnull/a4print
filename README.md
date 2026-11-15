@@ -15,7 +15,7 @@
 
 </div>
 
-Most images worth printing are too small: a Pinterest download or a phone screenshot comes out soft and blocky on A4. a4print turns any image into a 300 DPI PDF sized for a home printer, as one page or a poster of several sheets. It fits the image to the page without cutting off what matters, cleans up compression artifacts, and can sharpen with AI models that run on your own computer.
+Most images worth printing are too small: a Pinterest download or a phone screenshot comes out soft and blocky on paper. a4print turns any image into a 300 DPI PDF sized for a home printer (A4, Letter or A3), as one page or a poster of several sheets. It fits the image to the page without cutting off what matters, cleans up compression artifacts, and can sharpen with AI models that run on your own computer.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/flawnull/a4print/main/docs/images/demo.gif" width="640" alt="A divider sweeps across a close-up of the spoon at print size: blocky on the plain enlargement side, crisp on the a4print side">
@@ -41,6 +41,7 @@ New to pipx, or want AI upscaling? See the [install guide](https://github.com/fl
 
 ## Features
 
+- **A4, US Letter or A3.** Pick the paper your printer uses; the web page defaults to Letter in the US and Canada, A4 elsewhere.
 - **Smart fit.** Designed posters keep their frames and credit lines; the page is extended in the poster's own paper color and grain. Photos are cropped only when little is lost.
 - **AI upscaling, kept honest.** Real-ESRGAN, or newer web-photo models with `--max-quality`. Tones come from the original and erased skin texture is put back, so prints look sharper, not retouched. Tiny text the AI would garble is left as is.
 - **Posters on a home printer.** Split one image over 2 to 36 A4 sheets, with margins, overlap strips, alignment guides and labeled sheets.

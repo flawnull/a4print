@@ -177,11 +177,12 @@ def pdf_page(img, quality=95):
     return buffer.getvalue()
 
 
-def save_pdf(pages, path):
-    """Write encoded pages (from pdf_page) as A4 pages, image edge to edge.
-    Each page turns to match its image, so portrait and landscape can mix."""
-    a4 = (img2pdf.mm_to_pt(A4_MM[0]), img2pdf.mm_to_pt(A4_MM[1]))
-    layout = img2pdf.get_layout_fun(a4, auto_orient=True)
+def save_pdf(pages, path, paper_mm=A4_MM):
+    """Write encoded pages (from pdf_page) as pages of `paper_mm` (A4 by
+    default), image edge to edge. Each page turns to match its image, so
+    portrait and landscape can mix."""
+    size = (img2pdf.mm_to_pt(paper_mm[0]), img2pdf.mm_to_pt(paper_mm[1]))
+    layout = img2pdf.get_layout_fun(size, auto_orient=True)
     raw = img2pdf.convert(list(pages), layout_fun=layout)
 
     # Ask PDF viewers to print at 100% instead of "fit to page", which would

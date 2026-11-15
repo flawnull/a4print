@@ -40,7 +40,8 @@ class Options:
     ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0
     max_quality: bool = False      # newer PyTorch models (maxq); implies AI
     min_dpi: float = 150
-    poster: tuple = None           # (columns, rows) of A4 sheets, or None for one page
+    paper: str = "a4"              # a4 | letter | a3
+    poster: tuple = None           # (columns, rows) of sheets, or None for one page
     overlap: float = 10.0          # mm shared by neighboring poster sheets
     pdf: bool = True
     preview: bool = True
@@ -223,13 +224,13 @@ def detail_pair(source, result, mapping, size=600):
 
 
 def prepare(arr, opts, jpeg_quality=None):
-    """Turn an sRGB uint8 array into a finished A4 page. Returns (page, report)."""
+    """Turn an sRGB uint8 array into a finished page. Returns (page, report)."""
     report = Report(source_size=(arr.shape[1], arr.shape[0]))
     arr = clean_source(arr, opts, report)
 
     h, w = arr.shape[:2]
     report.orientation = layout.choose_orientation(w, h, opts.orientation)
-    page_w, page_h = layout.target_size(report.orientation)
+    page_w, page_h = layout.target_size(report.orientation, opts.paper)
     margin = layout.mm_to_px(opts.margin or 0)
     area = (page_w - 2 * margin, page_h - 2 * margin)
     if min(area) < 100:
@@ -242,7 +243,7 @@ def prepare(arr, opts, jpeg_quality=None):
 
 
 def prepare_poster(arr, opts, jpeg_quality=None):
-    """Make a poster split over A4 sheets. Returns (sheets, overview, report)
+    """Make a poster split over sheets of paper. Returns (sheets, overview, report)
     where overview is a small picture of the poster with the sheet grid."""
     report = Report(source_size=(arr.shape[1], arr.shape[0]))
     arr = clean_source(arr, opts, report)
@@ -250,7 +251,8 @@ def prepare_poster(arr, opts, jpeg_quality=None):
     h, w = arr.shape[:2]
     cols, rows = opts.poster
     margin = 6.0 if opts.margin is None else opts.margin
-    plan = poster.make_plan(w, h, cols, rows, opts.orientation, margin, opts.overlap)
+    plan = poster.make_plan(w, h, cols, rows, opts.orientation, margin, opts.overlap,
+                            layout.paper_mm(opts.paper))
     report.poster = plan
     report.orientation = plan.sheet_orientation
 
@@ -278,19 +280,19 @@ def process_file(path, out_dir, opts, name=None):
         after = files.to_rgb_image(overview)
         pages = [files.pdf_page(files.to_rgb_image(s)) for s in sheets]
         pdf = out_dir / f"{name}_poster.pdf"
-        files.save_pdf(pages, pdf)
+        files.save_pdf(pages, pdf, layout.paper_mm(opts.paper))
         report.outputs.append(pdf)
         preview_name = f"{name}_poster_preview.jpg"
     else:
         page, report = prepare(original, opts, quality)
         after = files.to_rgb_image(page)
-        png = out_dir / f"{name}_a4.png"
+        png = out_dir / f"{name}_{opts.paper}.png"
         files.save_png(after, png)
         report.outputs.append(png)
         pages = [files.pdf_page(after)]
         if opts.pdf:
-            pdf = out_dir / f"{name}_a4.pdf"
-            files.save_pdf(pages, pdf)
+            pdf = out_dir / f"{name}_{opts.paper}.pdf"
+            files.save_pdf(pages, pdf, layout.paper_mm(opts.paper))
             report.outputs.append(pdf)
         preview_name = f"{name}_preview.jpg"
 
@@ -303,7 +305,8 @@ def process_file(path, out_dir, opts, name=None):
     if opts.preview:
         preview = out_dir / preview_name
         files.save_preview(files.to_rgb_image(original), after, preview,
-                           "After (poster)" if opts.poster else "After (A4)", detail=report.detail)
+                           "After (poster)" if opts.poster else f"After ({layout.PAPER_NAMES[opts.paper]})",
+                           detail=report.detail)
         report.outputs.append(preview)
     if opts.detail_files and report.detail is not None:
         for label, arr in zip(("plain", "final"), report.detail, strict=True):

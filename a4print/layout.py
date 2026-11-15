@@ -1,4 +1,5 @@
-"""A4 geometry: orientation, crop/fit/extend placement and border trimming.
+"""Page geometry: paper sizes, orientation, crop/fit/extend placement and
+border trimming.
 
 All functions work on NumPy uint8 arrays, either H x W x 3 (RGB) or H x W (gray).
 
@@ -12,7 +13,13 @@ import cv2
 import numpy as np
 
 DPI = 300
-A4_MM = (210, 297)
+
+# Paper sizes in mm (portrait). Letter is the home-printer size in the US,
+# Canada, Mexico and the Philippines; A4 nearly everywhere else.
+PAPERS = {"a4": (210.0, 297.0), "letter": (215.9, 279.4), "a3": (297.0, 420.0)}
+PAPER_NAMES = {"a4": "A4", "letter": "Letter", "a3": "A3"}
+
+A4_MM = PAPERS["a4"]
 A4_PORTRAIT = (round(A4_MM[0] * DPI / 25.4), round(A4_MM[1] * DPI / 25.4))  # (2480, 3508)
 A4_LANDSCAPE = (A4_PORTRAIT[1], A4_PORTRAIT[0])
 
@@ -26,9 +33,18 @@ def choose_orientation(width, height, override="auto"):
     return "landscape" if width > height else "portrait"
 
 
-def target_size(orientation):
-    """(width, height) in pixels at 300 DPI."""
-    return A4_LANDSCAPE if orientation == "landscape" else A4_PORTRAIT
+def paper_mm(paper="a4"):
+    """(width, height) of a paper size in mm, portrait."""
+    try:
+        return PAPERS[paper]
+    except KeyError:
+        raise ValueError(f"unknown paper size '{paper}'; choose from {', '.join(PAPERS)}") from None
+
+
+def target_size(orientation, paper="a4"):
+    """(width, height) of the page in pixels at 300 DPI."""
+    w, h = (round(v * DPI / 25.4) for v in paper_mm(paper))
+    return (h, w) if orientation == "landscape" else (w, h)
 
 
 def crop_box(src_w, src_h, tgt_w, tgt_h, anchor="center"):

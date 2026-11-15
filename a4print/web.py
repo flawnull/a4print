@@ -35,7 +35,7 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 # Query parameter -> command-line flag. Flags without a value are switches.
 VALUE_FLAGS = {
-    "fill": "--fill", "anchor": "--anchor", "orientation": "--orientation",
+    "paper": "--paper", "fill": "--fill", "anchor": "--anchor", "orientation": "--orientation",
     "poster": "--poster", "margin": "--margin", "overlap": "--overlap",
     "ai_strength": "--ai-strength",
 }
@@ -223,6 +223,27 @@ class App:
         return path if path.is_file() else None
 
 
+def paper_info():
+    """Size labels for the page's print-size cards, per paper, computed with
+    the same poster planner the prints use (inches for Letter)."""
+    from . import layout, poster
+
+    info = {}
+    for paper, (w, h) in layout.PAPERS.items():
+        def size(mm, paper=paper):
+            if paper == "letter":
+                return f"{mm[0] / 25.4:.0f} x {mm[1] / 25.4:.0f} in"
+            return f"{mm[0] / 10:.0f} x {mm[1] / 10:.0f} cm"
+        entry = {"name": layout.PAPER_NAMES[paper],
+                 "page": "8.5 x 11 in" if paper == "letter" else size((w, h))}
+        for cols, rows in ((2, 2), (3, 3)):
+            plan = poster.make_plan(1500, 1000, cols, rows, paper_mm=(w, h))
+            iso = f", {plan.size_name}" if plan.size_name and paper != "letter" else ""
+            entry[f"{cols}x{rows}"] = size(plan.poster_mm) + iso
+        info[paper] = entry
+    return info
+
+
 def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
         server_version = "a4print"
@@ -339,6 +360,9 @@ def make_handler(app):
     return Handler
 
 
+PAGE_PLACEHOLDER = "__PAPER_INFO__"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="a4print-web", description="Run the a4print web page on this computer.")
     parser.add_argument("--port", type=int, default=8765, help="port to listen on (default: %(default)s)")
@@ -388,6 +412,7 @@ PAGE = r"""<!doctype html>
   h1 { font-size: 28px; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0 0 24px; }
   .step { font-size: 14px; font-weight: 600; color: var(--muted); margin: 24px 0 8px; }
+  .step select { font: inherit; font-weight: 600; padding: 2px 6px; margin: 0 2px; }
   .drop { border: 2px dashed var(--line); border-radius: 12px; background: var(--panel);
           padding: 36px 16px; text-align: center; cursor: pointer; }
   .drop.over, .drop:focus-visible { border-color: var(--accent); outline: none; }
@@ -469,14 +494,17 @@ PAGE = r"""<!doctype html>
   <input type="file" id="file" accept="image/*,.heic,.heif" multiple hidden>
 
   <form id="opts">
-    <div class="step">2. Print size</div>
+    <div class="step">2. Print size, on
+      <select id="paper" name="paper" aria-label="Paper size">
+        <option value="a4">A4</option><option value="letter">Letter</option><option value="a3">A3</option>
+      </select> paper</div>
     <div class="sizes" role="radiogroup">
       <label><input type="radio" name="poster" value="" checked>
-        <span><b>A4 page</b><small>One sheet, 21 x 30 cm</small></span></label>
+        <span><b id="size-page">A4 page</b><small id="size-page-info">One sheet</small></span></label>
       <label><input type="radio" name="poster" value="2x2">
-        <span><b>Poster, about A2</b><small>4 sheets to glue, 56 x 39 cm</small></span></label>
+        <span><b>Poster, 4 sheets</b><small id="size-2x2-info"></small></span></label>
       <label><input type="radio" name="poster" value="3x3">
-        <span><b>Poster, about A1</b><small>9 sheets to glue, 84 x 57 cm</small></span></label>
+        <span><b>Poster, 9 sheets</b><small id="size-3x3-info"></small></span></label>
     </div>
 
     <div class="ai" id="ai-box">
@@ -578,6 +606,30 @@ function showAI(status) {
   if (status.ai) $("ai-note").textContent =
     "Makes small images print sharper. Used only when an image needs it; the preview shows a detail at print size.";
 }
+// Paper: saved choice on this browser, else the setting saved with
+// a4print-calibrate, else Letter in the countries that use it.
+const PAPER_INFO = __PAPER_INFO__;
+const LETTER_REGIONS = ["US", "CA", "MX", "PH", "PR", "CL", "CO", "VE", "GT", "CR", "PA", "DO", "SV", "HN", "NI"];
+function remembered(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function showPaper(paper) {
+  const info = PAPER_INFO[paper];
+  $("paper").value = paper;
+  $("size-page").textContent = info.name + " page";
+  $("size-page-info").textContent = "One sheet, " + info.page;
+  $("size-2x2-info").textContent = "To glue, " + info["2x2"];
+  $("size-3x3-info").textContent = "To glue, " + info["3x3"];
+}
+$("paper").addEventListener("change", () => { remember("a4print-paper", $("paper").value); showPaper($("paper").value); });
+function initialPaper(saved) {
+  const mine = remembered("a4print-paper");
+  if (mine && PAPER_INFO[mine]) return mine;
+  if (saved && PAPER_INFO[saved]) return saved;
+  const region = ((navigator.language || "").split("-")[1] || "").toUpperCase();
+  return LETTER_REGIONS.includes(region) ? "letter" : "a4";
+}
+showPaper(initialPaper(null));
+
 function showSettings(s) {
   const p = s.print_settings || {};
   $("cal-status").textContent = p.shadows !== undefined
@@ -592,6 +644,7 @@ $("cal-save").addEventListener("click", async () => {
 });
 
 fetch("/status").then(r => r.json()).then(s => {
+  showPaper(initialPaper((s.print_settings || {}).paper));
   showAI(s);
   showSettings(s);
   // AI is on by default once installed; it skips images that are already sharp.
@@ -765,6 +818,9 @@ function updateAll() {
 </body>
 </html>
 """
+
+
+PAGE = PAGE.replace(PAGE_PLACEHOLDER, json.dumps(paper_info()))
 
 
 if __name__ == "__main__":

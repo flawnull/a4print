@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a4print"
-version = "0.8.0"
+version = "0.9.0"
 description = "Print-ready A4 pages and wall posters from any image, with local AI upscaling that stays true to the original"
 readme = "README.md"
 license = "MIT"

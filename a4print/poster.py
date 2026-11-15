@@ -69,12 +69,12 @@ class Plan:
         return ""
 
 
-def make_plan(img_w, img_h, cols, rows, orientation="auto", margin_mm=6.0, overlap_mm=10.0):
+def make_plan(img_w, img_h, cols, rows, orientation="auto", margin_mm=6.0, overlap_mm=10.0, paper_mm=A4_MM):
     """Choose the sheet direction whose finished poster shape is closest to
     the image's, so the least gets cropped. `orientation` (portrait or
     landscape) refers to the whole poster."""
     candidates = []
-    for sheet_orientation, sheet in (("portrait", A4_MM), ("landscape", A4_MM[::-1])):
+    for sheet_orientation, sheet in (("portrait", paper_mm), ("landscape", paper_mm[::-1])):
         area = (sheet[0] - 2 * margin_mm, sheet[1] - 2 * margin_mm)
         if min(area) <= overlap_mm * 2:
             raise ValueError(f"margin {margin_mm} mm and overlap {overlap_mm} mm leave no room on the sheet")
