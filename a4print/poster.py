@@ -216,6 +216,7 @@ def overview(art, plan, max_side=1600):
             box = draw.textbbox((0, 0), label, font=font)
             cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
             tw, th = box[2] - box[0], box[3] - box[1]
-            draw.rectangle([cx - tw // 2 - 8, cy - th // 2 - 8, cx + tw // 2 + 8, cy + th // 2 + 12], fill=(0, 0, 0, 150))
+            draw.rectangle([cx - tw // 2 - 8, cy - th // 2 - 8, cx + tw // 2 + 8, cy + th // 2 + 12],
+                           fill=(0, 0, 0, 150))
             draw.text((cx - tw // 2, cy - th // 2), label, fill=(255, 255, 255, 255), font=font)
     return np.asarray(Image.alpha_composite(img, layer).convert("RGB"))

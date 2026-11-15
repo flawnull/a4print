@@ -107,6 +107,7 @@ Print only images you have the right to use. `--remove`, which erases date stamp
 - [Guide](docs/guide.md): install, every option, posters, calibration, common problems
 - [How it works](docs/how-it-works.md): the pipeline, the AI merge, model comparison, engineering notes
 - [Security](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

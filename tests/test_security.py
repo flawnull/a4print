@@ -9,7 +9,6 @@ from a4print import calibrate, files, maxq, setup_ai
 
 from .test_web import get, png_bytes, post, server  # noqa: F401  (server is a fixture)
 
-
 # --- untrusted images ---------------------------------------------------
 
 def test_oversized_images_are_refused_before_decoding(tmp_path, monkeypatch):

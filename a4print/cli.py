@@ -19,7 +19,8 @@ def region(text):
         for v in parts:
             values.append(f"{float(v[:-1])}%" if v.endswith("%") else int(v))
     except ValueError:
-        raise argparse.ArgumentTypeError(f"expected x,y,w,h in pixels or percent (e.g. 70%,90%,30%,10%), got '{text}'")
+        raise argparse.ArgumentTypeError(
+            f"expected x,y,w,h in pixels or percent (e.g. 70%,90%,30%,10%), got '{text}'") from None
     if any((float(v[:-1]) if isinstance(v, str) else v) <= 0 for v in values[2:]):
         raise argparse.ArgumentTypeError("width and height must be positive")
     return tuple(values)
@@ -29,7 +30,7 @@ def grid(text):
     try:
         return poster.parse_grid(text)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc))
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def build_parser():

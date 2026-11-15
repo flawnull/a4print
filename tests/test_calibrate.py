@@ -1,6 +1,5 @@
 """Printer test page and saved print settings."""
 
-import numpy as np
 import pytest
 
 from a4print import calibrate, cli

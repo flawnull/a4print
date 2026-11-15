@@ -132,7 +132,7 @@ def resolve_region(region, width, height):
     totals = (width, height, width, height)
     return tuple(
         round(float(v[:-1]) / 100 * total) if isinstance(v, str) else int(v)
-        for v, total in zip(region, totals)
+        for v, total in zip(region, totals, strict=True)
     )
 
 

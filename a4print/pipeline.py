@@ -306,7 +306,7 @@ def process_file(path, out_dir, opts, name=None):
                            "After (poster)" if opts.poster else "After (A4)", detail=report.detail)
         report.outputs.append(preview)
     if opts.detail_files and report.detail is not None:
-        for label, arr in zip(("plain", "final"), report.detail):
+        for label, arr in zip(("plain", "final"), report.detail, strict=True):
             path = out_dir / f"{name}_detail_{label}.jpg"
             files.to_rgb_image(arr).save(path, "JPEG", quality=92, icc_profile=files.SRGB_ICC)
             report.outputs.append(path)

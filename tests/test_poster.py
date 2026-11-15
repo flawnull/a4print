@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from PIL import Image
 
 from a4print import cli, poster
 from a4print.layout import DPI

@@ -1,3 +1,4 @@
+import argparse
 import io
 import sys
 
@@ -6,8 +7,8 @@ import pytest
 from PIL import Image, ImageCms
 
 from a4print import cli, enhance, upscale
-from tests.conftest import gradient, with_noise
 from a4print.pipeline import Options, prepare, process_file
+from tests.conftest import gradient, with_noise
 
 
 def test_folder_run_writes_png_pdf_preview(tmp_path, save, portrait, landscape):
@@ -158,7 +159,7 @@ def test_region_parsing(text, expected):
 
 @pytest.mark.parametrize("text", ["1,2,3", "a,b,c,d", "0,0,0,10", "0,0,10,-5%"])
 def test_bad_regions(text):
-    with pytest.raises(Exception):
+    with pytest.raises(argparse.ArgumentTypeError):
         cli.region(text)
 
 

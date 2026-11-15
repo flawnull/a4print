@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from . import enhance, files
-from .layout import A4_PORTRAIT, DPI
+from .layout import A4_PORTRAIT
 
 BLACK_LEVELS = [3, 6, 9, 12, 16, 20, 25, 30, 36]        # squares 1-9, out of 255
 MIDTONE_CHOICES = {"A": 0.0, "B": 0.05, "C": 0.1, "D": 0.2, "E": 0.3}

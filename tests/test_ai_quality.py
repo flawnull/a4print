@@ -133,7 +133,9 @@ def test_merge_keeps_original_tones():
 def test_merge_takes_edges_from_ai():
     plain, ai = _upscaled_pair()
     out = upscale.merge_ai(plain, ai, scale=4).astype(int)
-    edge = lambda img: np.abs(np.diff(img[200, 185:215, 0])).max()
+    def edge(img):
+        return np.abs(np.diff(img[200, 185:215, 0])).max()
+
     assert edge(out) > 2 * edge(plain.astype(int))
 
 
@@ -141,7 +143,9 @@ def test_merge_restores_texture_the_ai_removed():
     plain, ai = _upscaled_pair()
     out = upscale.merge_ai(plain, ai, scale=4).astype(np.float32)
     region = (slice(100, 300), slice(20, 130))
-    hf = lambda img: (img - cv2.GaussianBlur(img, (0, 0), 3))[region].std()
+    def hf(img):
+        return (img - cv2.GaussianBlur(img, (0, 0), 3))[region].std()
+
     assert hf(out) > 0.8 * hf(plain.astype(np.float32))
     assert hf(ai.astype(np.float32)) < 0.1
 
