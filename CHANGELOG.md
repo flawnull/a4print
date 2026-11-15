@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+- Photo sheets: `--per-page 2|4|6|8|9|12` lays several images on each page with dashed cutting guides; photos are turned 90 degrees when that crops less. Each image gets the full pipeline. One PDF for all sheets.
+- The command line takes several files or folders at once.
+- Web page: a "Photo sheet" print size; all chosen images go into one job.
+
 ## 0.9.0
 
 - US Letter and A3 paper: `--paper letter|a3` for pages, posters (sheets of that paper), PDFs and the printer test page. `a4print-calibrate --paper` saves a default.

@@ -44,6 +44,7 @@ New to pipx, or want AI upscaling? See the [install guide](https://github.com/fl
 - **A4, US Letter or A3.** Pick the paper your printer uses; the web page defaults to Letter in the US and Canada, A4 elsewhere.
 - **Smart fit.** Designed posters keep their frames and credit lines; the page is extended in the poster's own paper color and grain. Photos are cropped only when little is lost.
 - **AI upscaling, kept honest.** Real-ESRGAN, or newer web-photo models with `--max-quality`. Tones come from the original and erased skin texture is put back, so prints look sharper, not retouched. Tiny text the AI would garble is left as is.
+- **Photo sheets.** Put 2 to 12 pictures on one page with cutting guides; photos are turned when that crops less.
 - **Posters on a home printer.** Split one image over 2 to 36 A4 sheets, with margins, overlap strips, alignment guides and labeled sheets.
 - **Printer calibration.** A one-page test sheet measures how dark your printer prints, and every later print is tuned to it.
 - **Cleanup only when needed.** Noise and JPEG artifacts are measured first; clean images are left alone. Black-and-white photos stay neutral gray.

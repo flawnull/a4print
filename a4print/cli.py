@@ -38,7 +38,7 @@ def build_parser():
         prog="a4print",
         description="Prepare images for borderless A4 printing at 300 DPI.",
     )
-    p.add_argument("input", help="an image file or a folder of images")
+    p.add_argument("input", nargs="+", help="image files, or a folder of images")
     p.add_argument("-o", "--output-dir", default="a4print_out", help="where to save results (default: %(default)s)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
@@ -59,6 +59,11 @@ def build_parser():
     g.add_argument("--trim-border", action="store_true", help="remove plain outer margins first")
     g.add_argument("--trim-tolerance", type=int, default=18, metavar="N",
                    help="how far (0-255) a pixel may differ from the margin color (default: %(default)s)")
+
+    g = p.add_argument_group("photo sheets")
+    g.add_argument("--per-page", type=int, choices=(1, 2, 4, 6, 8, 9, 12), default=1, metavar="N",
+                   help="put N images on each page (2, 4, 6, 8, 9 or 12), with cutting guides; "
+                        "all pages go into one PDF")
 
     g = p.add_argument_group("poster")
     g.add_argument("--poster", type=grid, metavar="COLSxROWS",
@@ -151,17 +156,64 @@ def _fill_text(r):
     return f"auto: {r.fill_reason}" if r.fill_reason else r.fill
 
 
+def make_sheets(images, args, opts):
+    """--per-page: lay the images out on sheets, one PDF for all of them."""
+    from . import sheets
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    loaded, failures = [], 0
+    for path in images:
+        try:
+            loaded.append((path.name, files.load_rgb(path), files.jpeg_quality(path)))
+        except Exception as exc:
+            failures += 1
+            print(f"{path.name}\n  error: {exc}", file=sys.stderr)
+    if not loaded:
+        return 1
+    if opts.ai or opts.max_quality:
+        print("upscaling with AI where needed (seconds per image on a GPU, minutes on CPU)", flush=True)
+    pages, entries = sheets.make_sheets(loaded, opts, args.per_page)
+    for sheet, name, r in entries:
+        notes = [f"sheet {sheet}", f"{r.effective_dpi:.0f} DPI, {r.quality}"]
+        if r.orientation:
+            notes.append(r.orientation)
+        if r.content and "skipped" not in r.resize_method:
+            notes.append("AI sharpened")
+        print(f"{name}\n  {'; '.join(notes)}")
+        for warning in r.warnings:
+            print(f"  warning     {warning}")
+    paper = layout.paper_mm(opts.paper)
+    pdf = out_dir / f"a4print_sheets_{opts.paper}.pdf"
+    files.save_pdf([files.pdf_page(files.to_rgb_image(p)) for p in pages], pdf, paper)
+    print(f"\n{len(loaded)} images on {len(pages)} {layout.PAPER_NAMES[opts.paper]} "
+          f"sheet{'s' if len(pages) != 1 else ''}, {args.per_page} per page")
+    print(f"  saved       {pdf}")
+    if opts.preview:
+        preview = out_dir / f"a4print_sheets_{opts.paper}_preview.jpg"
+        first = files.to_rgb_image(pages[0])
+        first.thumbnail((1400, 1400))
+        first.save(preview, "JPEG", quality=88, icc_profile=files.SRGB_ICC)
+        print(f"  saved       {preview}")
+    return 1 if failures else 0
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     opts = options_from_args(args)
 
-    source = Path(args.input)
-    if not source.exists():
-        print(f"error: {source} does not exist", file=sys.stderr)
-        return 2
-    images = files.list_images(source)
+    images = []
+    for item in args.input:
+        source = Path(item)
+        if not source.exists():
+            print(f"error: {source} does not exist", file=sys.stderr)
+            return 2
+        images += files.list_images(source)
     if not images:
-        print(f"error: no images found in {source}", file=sys.stderr)
+        print(f"error: no images found in {', '.join(args.input)}", file=sys.stderr)
+        return 2
+    if args.per_page > 1 and args.poster:
+        print("error: --per-page and --poster can't be combined", file=sys.stderr)
         return 2
 
     if opts.max_quality:
@@ -194,6 +246,9 @@ def main(argv=None):
             files.save_grid(files.load_rgb(path), grid)
             print(f"{path.name}\n  saved       {grid}")
         return 0
+
+    if args.per_page > 1:
+        return make_sheets(images, args, opts)
 
     failures = 0
     pages = []

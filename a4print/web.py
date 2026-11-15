@@ -142,6 +142,84 @@ class App:
                 self.ai_available = True
         return HTTPStatus.OK, self.status()
 
+    MAX_SHEET_IMAGES = 48
+
+    def sheet_add(self, name, data, query):
+        """Add one image to a photo-sheet job (made on the first call)."""
+        name = safe_name(name)
+        if Path(name).suffix.lower() not in files.EXTENSIONS:
+            return HTTPStatus.BAD_REQUEST, {"error": f"{name} isn't a supported image type"}
+        job = query.get("job", [""])[0]
+        if job:
+            if not re.fullmatch(r"[0-9a-f]{16}", job) or not (self.root / job / "upload").is_dir():
+                return HTTPStatus.NOT_FOUND, {"error": "unknown sheet job"}
+        else:
+            job = secrets.token_hex(8)
+            (self.root / job / "upload").mkdir(parents=True)
+            self._forget_old_jobs(keep=self.root / job)
+        upload = self.root / job / "upload"
+        count = len(list(upload.iterdir()))
+        if count >= self.MAX_SHEET_IMAGES:
+            return HTTPStatus.BAD_REQUEST, {"error": f"at most {self.MAX_SHEET_IMAGES} images per sheet job"}
+        (upload / f"{count:03d}_{name}").write_bytes(data)   # numbered, so the order is kept
+        return HTTPStatus.OK, {"job": job}
+
+    def sheet_make(self, query):
+        """Lay out a photo-sheet job's images and make the PDF."""
+        from . import layout, sheets
+
+        job = query.get("job", [""])[0]
+        upload = self.root / job / "upload"
+        if not re.fullmatch(r"[0-9a-f]{16}", job) or not upload.is_dir():
+            return HTTPStatus.NOT_FOUND, {"error": "unknown sheet job"}
+        query = {k: v for k, v in query.items() if k not in ("poster", "job", "name")}
+        opts, error = parse_options(build_argv(upload, self.root / job, query))
+        if error:
+            return HTTPStatus.BAD_REQUEST, {"error": error}
+        try:
+            per_page = int(query.get("per_page", ["4"])[0])
+            sheets.plan(per_page, opts.paper)
+        except ValueError as exc:
+            return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+        if opts.max_quality and not maxq.available():
+            return HTTPStatus.BAD_REQUEST, {"error": "maximum quality isn't set up on this computer"}
+        if opts.ai and not opts.max_quality and not self.ai_available:
+            return HTTPStatus.BAD_REQUEST, {"error": "Real-ESRGAN isn't installed on this computer"}
+
+        with self.lock:
+            loaded, lines = [], []
+            for path in sorted(upload.iterdir()):
+                display = path.name[4:]
+                try:
+                    loaded.append((display, files.load_rgb(path), files.jpeg_quality(path)))
+                except Exception as exc:
+                    lines.append([display, f"skipped: {exc}"])
+            if not loaded:
+                return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "none of the images could be read"}
+            try:
+                pages, entries = sheets.make_sheets(loaded, opts, per_page)
+            except Exception as exc:
+                return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+            pdf = self.root / job / f"a4print_sheets_{opts.paper}.pdf"
+            files.save_pdf([files.pdf_page(files.to_rgb_image(p)) for p in pages], pdf, layout.paper_mm(opts.paper))
+            preview = self.root / job / f"a4print_sheets_{opts.paper}_preview.jpg"
+            first = files.to_rgb_image(pages[0])
+            first.thumbnail((1400, 1400))
+            first.save(preview, "JPEG", quality=88, icc_profile=files.SRGB_ICC)
+
+        for sheet, name, r in entries:
+            note = f"sheet {sheet}, {r.effective_dpi:.0f} DPI, {r.quality}"
+            if r.orientation:
+                note += ", " + r.orientation
+            lines.append([name, note])
+        outputs = [{"name": p.name, "url": f"/files/{job}/{p.name}", "kind": p.suffix.lstrip("."),
+                    "role": "pdf" if p.suffix == ".pdf" else "sheet_preview"} for p in (pdf, preview)]
+        lowest = min(r.effective_dpi for _, _, r in entries)
+        return HTTPStatus.OK, {"name": f"{len(loaded)} images, {per_page} per page",
+                               "summary": {"sheets": len(pages), "images": len(loaded), "lowest_dpi": round(lowest),
+                                           "paper": layout.PAPER_NAMES[opts.paper]},
+                               "lines": lines, "files": outputs}
+
     def process(self, name, data, query):
         name = safe_name(name)
         if Path(name).suffix.lower() not in files.EXTENSIONS:
@@ -332,7 +410,7 @@ def make_handler(app):
             url = urlparse(self.path)
             # Other websites can't set this header without a CORS preflight,
             # which this server never approves, so they can't post here.
-            if url.path not in ("/process", "/setup-ai", "/setup-max", "/settings") \
+            if url.path not in ("/process", "/setup-ai", "/setup-max", "/settings", "/sheet-add", "/sheet-make") \
                     or self.headers.get("X-A4print") != "1":
                 self.send_error(HTTPStatus.FORBIDDEN)
                 return
@@ -341,6 +419,9 @@ def make_handler(app):
                 return
             if url.path == "/setup-max":
                 self._json(*app.setup_max())
+                return
+            if url.path == "/sheet-make":
+                self._json(*app.sheet_make(parse_qs(url.query)))
                 return
             if url.path == "/settings":
                 self._json(*app.save_print_settings(parse_qs(url.query)))
@@ -354,7 +435,8 @@ def make_handler(app):
                 return
             data = self.rfile.read(length)
             query = parse_qs(url.query)
-            status, payload = app.process(query.get("name", [""])[0], data, query)
+            handler = app.sheet_add if url.path == "/sheet-add" else app.process
+            status, payload = handler(query.get("name", [""])[0], data, query)
             self._json(status, payload)
 
     return Handler
@@ -418,7 +500,9 @@ PAGE = r"""<!doctype html>
   .drop.over, .drop:focus-visible { border-color: var(--accent); outline: none; }
   .drop strong { display: block; font-size: 18px; overflow-wrap: anywhere; }
   .drop span { color: var(--muted); font-size: 14px; }
-  .sizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .sizes select { font: inherit; font-size: 13px; padding: 0 2px; }
+  @media (max-width: 720px) { .sizes { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 480px) { .sizes { grid-template-columns: 1fr; } }
   .sizes label { display: block; cursor: pointer; }
   .sizes input { position: absolute; opacity: 0; }
@@ -466,6 +550,7 @@ PAGE = r"""<!doctype html>
   .compare figcaption { display: flex; justify-content: space-between; gap: 8px; max-width: 600px;
                         margin: 6px auto 0; font-size: 13px; color: var(--muted); }
   .whole summary { font-size: 14px; }
+  .result img.sheet-preview { max-width: 420px; display: block; margin: 12px auto; box-shadow: 0 2px 12px rgba(0,0,0,.15); }
   .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   .downloads a.main { background: var(--accent); color: var(--accent-text); text-decoration: none;
                       font-weight: 600; border-radius: 8px; padding: 10px 18px; }
@@ -505,6 +590,12 @@ PAGE = r"""<!doctype html>
         <span><b>Poster, 4 sheets</b><small id="size-2x2-info"></small></span></label>
       <label><input type="radio" name="poster" value="3x3">
         <span><b>Poster, 9 sheets</b><small id="size-3x3-info"></small></span></label>
+      <label><input type="radio" name="poster" value="sheet">
+        <span><b>Photo sheet</b><small>
+          <select id="per-page" aria-label="Photos per sheet">
+            <option value="2">2</option><option value="4" selected>4</option><option value="6">6</option>
+            <option value="9">9</option><option value="12">12</option>
+          </select> per page, to cut out</small></span></label>
     </div>
 
     <div class="ai" id="ai-box">
@@ -749,11 +840,54 @@ function slider(beforeUrl, afterUrl) {
   return wrap;
 }
 
+async function makeSheets(params) {
+  // Photo sheet: upload every image into one job, then lay them out.
+  const box = el("div", {class: "result"});
+  box.append(el("h2", {}, chosen.length + " images on photo sheets"), el("p", {class: "what"}, "Uploading..."));
+  results.prepend(box);
+  const say = text => { box.querySelector(".what").textContent = text; };
+  try {
+    let job = "";
+    for (const [i, file] of chosen.entries()) {
+      say("Uploading " + (i + 1) + " of " + chosen.length + "...");
+      const q = new URLSearchParams({name: file.name}); if (job) q.set("job", job);
+      const r = await fetch("/sheet-add?" + q, {method: "POST", body: file, headers: {"X-A4print": "1"}});
+      const d = await r.json(); if (!r.ok) throw new Error(file.name + ": " + d.error); job = d.job;
+    }
+    say(params.get("ai") === "on" || params.get("max_quality") === "on"
+        ? "Laying out and sharpening with AI. This can take a while..." : "Laying out the sheets...");
+    params.set("job", job); params.set("per_page", $("per-page").value); params.delete("poster");
+    const r = await fetch("/sheet-make?" + params, {method: "POST", headers: {"X-A4print": "1"}});
+    const data = await r.json(); if (!r.ok) throw new Error(data.error);
+    const s = data.summary;
+    say(s.images + " images on " + s.sheets + " " + s.paper + " sheet" + (s.sheets > 1 ? "s" : "") + ", " +
+        $("per-page").value + " per page. Cut along the dashed lines. Lowest sharpness: " + s.lowest_dpi + " DPI.");
+    const preview = data.files.find(f => f.role === "sheet_preview");
+    if (preview) box.append(el("img", {src: preview.url, alt: "First sheet", class: "sheet-preview"}));
+    const pdf = data.files.find(f => f.role === "pdf");
+    const dl = el("div", {class: "downloads"});
+    if (pdf) dl.append(el("a", {class: "main", href: pdf.url, download: pdf.name}, "Download PDF"));
+    box.append(dl);
+    const more = el("details"); more.append(el("summary", {}, "Details"));
+    const lines = el("dl", {class: "lines"});
+    for (const [label, text] of data.lines) lines.append(el("dt", {}, label), el("dd", {}, text));
+    more.append(lines); box.append(more);
+  } catch (err) {
+    const p = box.querySelector(".what"); p.className = "error"; p.textContent = err.message || "Something went wrong.";
+  }
+}
+
 go.addEventListener("click", async () => {
   go.disabled = true;
   const params = new URLSearchParams();
   for (const [key, value] of new FormData($("opts"))) if (value !== "") params.set(key, value);
   if ($("poster-more").value) params.set("poster", $("poster-more").value);
+  if (params.get("poster") === "sheet") {
+    await makeSheets(params);
+    go.disabled = false;
+    updateAll();
+    return;
+  }
   for (const file of chosen) {
     const box = el("div", {class: "result"});
     const aiChecked = params.get("ai") === "on" || params.get("max_quality") === "on";

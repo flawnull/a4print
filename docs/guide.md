@@ -224,6 +224,31 @@ holiday.jpg
 - **extend**: scales the image to fit inside the page, then fills the empty bands by mirroring the image edges outward and blurring them. The image itself is not changed. Works best when the image's shape is close to A4. With a very wide image on a portrait page, blurred copies of the content show in the bands.
 - **fit**: scales the image to fit inside the page and leaves a white border.
 
+## Photo sheets
+
+`--per-page` puts several images on each page, in a grid of equal slots with dashed cutting guides in the gaps between them:
+
+```bash
+a4print beach.jpg dinner.jpg dog.jpg sunset.jpg --per-page 4
+```
+
+```bash
+a4print ~/Pictures/holiday --per-page 6 --paper letter
+```
+
+| `--per-page` | Grid | Each photo on A4 |
+|---|---|---|
+| 2 | 1 x 2 | about 20 x 14 cm |
+| 4 | 2 x 2 | about 10 x 14 cm |
+| 6 | 2 x 3 | about 10 x 9 cm |
+| 8 | 2 x 4 | about 10 x 7 cm |
+| 9 | 3 x 3 | about 6.5 x 9 cm |
+| 12 | 3 x 4 | about 6.5 x 7 cm |
+
+Each image goes through the same steps as a full page: the automatic fit, cleanup, AI sharpening if you ask for it, and print tuning. A landscape photo in a portrait slot is turned 90 degrees when that crops less; turn the cut-out print back by hand. All sheets go into one PDF, `a4print_sheets_a4.pdf`, with a preview of the first sheet. The white margin around the page is 5 mm (change it with `--margin`).
+
+On the web page, choose **Photo sheet** as the print size, pick how many per page, and drop in all the images at once.
+
 ## Posters
 
 `--poster` makes a poster bigger than A4 and splits it over sheets you print at home, then trim and glue together.
