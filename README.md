@@ -9,9 +9,9 @@
 ![macOS | Windows | Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Windows%20%7C%20Linux-555)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2f5d50)](LICENSE)
 
-![A 512 px portrait printed on A4: plain enlargement on the left, a4print with maximum quality on the right](docs/images/hero.jpg)
+![A 600 x 400 px photo of an espresso cup becomes a print-ready A4 page; a close-up at print size compares a plain enlargement of the spoon with a4print's sharper result](docs/images/hero.jpg)
 
-<sub>5 x 5 cm of an A4 print from a 512 px photo. Left: plain enlargement. Right: <code>a4print --max-quality</code>. Portrait: NASA, public domain.</sub>
+<sub>A 600 x 400 px download printed on A4 with <code>--max-quality</code>. Photo: Rachel Michetti, CC0, from scikit-image.</sub>
 
 </div>
 
