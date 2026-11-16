@@ -4,6 +4,8 @@
 
 - Web page: erase a date stamp or mark by dragging boxes on the image.
 - Smarter erasing (`--remove` and the web tool): only the marks inside a box are filled, so paper grain stays and nearby lines are not smeared in. Solid patches still get the whole box filled.
+- Web page: elapsed time while a job runs; other poster sizes, the detail caption and the printer test page follow the chosen paper.
+- Fixes from a code review: uploads with non-ASCII or very long names; same-named files from two folders overwriting each other; Letter and A3 outputs being reprocessed on a second run; photo-sheet and `--grid` errors ending in a traceback; one bad image losing a whole photo sheet; negative margins from the web page; very thin images; tiny erase boxes.
 
 ## 0.10.0
 

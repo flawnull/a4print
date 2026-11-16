@@ -62,10 +62,17 @@ class Report:
     resize_method: str = ""
     content: str = ""              # "artwork" or "photo", when AI ran
     detail: tuple = None           # (plain enlargement, result) of one area, for the preview
+    detail_cm: float = 5.0         # side of that area on paper
     poster: object = None          # poster.Plan when making a poster
     warnings: list = field(default_factory=list)
     tips: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
+
+
+def check_options(opts):
+    """Reject option values that make no sense, for every front end."""
+    if (opts.margin is not None and opts.margin < 0) or opts.overlap < 0:
+        raise ValueError("the margin and overlap can't be negative")
 
 
 def clean_source(arr, opts, report):
@@ -184,6 +191,8 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         radius = opts.sharpen_radius * dpi / layout.DPI
         arr = enhance.finish_for_print(arr, opts.sharpen, radius, opts.shadows, opts.midtones)
     report.detail = detail_pair(source, arr, mapping)
+    if report.detail is not None:
+        report.detail_cm = round(report.detail[1].shape[0] / dpi * 2.54, 1)
     return arr
 
 
@@ -225,6 +234,7 @@ def detail_pair(source, result, mapping, size=600):
 
 def prepare(arr, opts, jpeg_quality=None):
     """Turn an sRGB uint8 array into a finished page. Returns (page, report)."""
+    check_options(opts)
     report = Report(source_size=(arr.shape[1], arr.shape[0]))
     arr = clean_source(arr, opts, report)
 
@@ -245,6 +255,7 @@ def prepare(arr, opts, jpeg_quality=None):
 def prepare_poster(arr, opts, jpeg_quality=None):
     """Make a poster split over sheets of paper. Returns (sheets, overview, report)
     where overview is a small picture of the poster with the sheet grid."""
+    check_options(opts)
     report = Report(source_size=(arr.shape[1], arr.shape[0]))
     arr = clean_source(arr, opts, report)
 
@@ -306,7 +317,7 @@ def process_file(path, out_dir, opts, name=None):
         preview = out_dir / preview_name
         files.save_preview(files.to_rgb_image(original), after, preview,
                            "After (poster)" if opts.poster else f"After ({layout.PAPER_NAMES[opts.paper]})",
-                           detail=report.detail)
+                           detail=report.detail, detail_cm=report.detail_cm)
         report.outputs.append(preview)
     if opts.detail_files and report.detail is not None:
         for label, arr in zip(("plain", "final"), report.detail, strict=True):

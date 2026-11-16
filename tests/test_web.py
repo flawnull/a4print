@@ -107,7 +107,7 @@ def test_files_cannot_escape_the_job_folder(server, portrait):
 
 
 def test_safe_name():
-    assert web.safe_name("../../my photo (1).JPG") == "my_photo_1_.JPG"
+    assert web.safe_name("../../my photo (1).JPG") == "my_photo_1.JPG"
     assert web.safe_name("") == "image"
 
 

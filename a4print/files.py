@@ -9,7 +9,7 @@ import numpy as np
 import pikepdf
 from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
-from .layout import A4_MM, DPI
+from .layout import A4_MM, DPI, PAPERS
 
 try:  # iPhone photos (HEIC) need the optional pillow-heif package.
     from pillow_heif import register_heif_opener
@@ -40,7 +40,8 @@ _SRGB = ImageCms.createProfile("sRGB")
 SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB).tobytes()
 
 
-OUTPUT_SUFFIXES = ("_a4", "_preview", "_grid")
+OUTPUT_SUFFIXES = tuple(f"_{paper}" for paper in PAPERS) + (
+    "_preview", "_grid", "_detail_plain", "_detail_final")
 
 
 def list_images(path):
@@ -62,10 +63,16 @@ def output_names(paths):
     extension; when two inputs share one (photo.jpg, photo.png), the
     extension is kept too (photo_jpg, photo_png) so nothing is overwritten."""
     stems = [p.stem for p in paths]
-    return {
-        p: f"{p.stem}_{p.suffix.lstrip('.').lower()}" if stems.count(p.stem) > 1 else p.stem
-        for p in paths
-    }
+    names, used = {}, set()
+    for p in paths:
+        base = f"{p.stem}_{p.suffix.lstrip('.').lower()}" if stems.count(p.stem) > 1 else p.stem
+        # Still taken (photo.jpg in two folders): number the later ones.
+        name, n = base, 2
+        while name in used:
+            name, n = f"{base}_{n}", n + 1
+        used.add(name)
+        names[p] = name
+    return names
 
 
 def load_rgb(path, info=None):
@@ -192,7 +199,7 @@ def save_pdf(pages, path, paper_mm=A4_MM):
         pdf.save(path)
 
 
-def save_preview(before, after, path, label="After (A4)", height=1200, detail=None):
+def save_preview(before, after, path, label="After (A4)", height=1200, detail=None, detail_cm=None):
     """Side-by-side before/after JPG with labels. `detail` is an optional
     (plain, result) pair of arrays shown below, at print size."""
     gap, label_h = 40, 70
@@ -215,7 +222,7 @@ def save_preview(before, after, path, label="After (A4)", height=1200, detail=No
         plain, result = (to_rgb_image(a) for a in detail)
         tile = min(600, (canvas.width - gap * 3) // 2)
         plain, result = plain.resize((tile, tile), Image.LANCZOS), result.resize((tile, tile), Image.LANCZOS)
-        cm = detail[0].shape[0] / DPI * 2.54
+        cm = detail_cm or detail[0].shape[0] / DPI * 2.54
         title = f"Detail at print size ({cm:.0f} x {cm:.0f} cm of the print)"
         row = Image.new("RGB", (canvas.width, tile + label_h * 2 + gap), (235, 235, 235))
         d = ImageDraw.Draw(row)

@@ -130,10 +130,15 @@ def resolve_region(region, width, height):
     """(x, y, w, h) in pixels. Values may be ints (pixels) or strings like
     "10%" (of the image width for x and w, of the height for y and h)."""
     totals = (width, height, width, height)
-    return tuple(
+    x, y, w, h = (
         round(float(v[:-1]) / 100 * total) if isinstance(v, str) else int(v)
         for v, total in zip(region, totals, strict=True)
     )
+    if isinstance(region[2], str):
+        w = max(1, w)   # a small percentage of a small image must not round to nothing
+    if isinstance(region[3], str):
+        h = max(1, h)
+    return x, y, w, h
 
 
 def inpaint_regions(arr, regions, radius=5):
@@ -338,4 +343,4 @@ def _shrink(arr, max_side):
     scale = max_side / max(h, w)
     if scale >= 1:
         return arr
-    return cv2.resize(arr, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+    return cv2.resize(arr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)

@@ -39,7 +39,8 @@ def test_landscape_photo_turns_into_a_portrait_slot():
 
 def test_five_images_make_two_sheets_with_guides():
     imgs = [(f"{i}.png", gradient(600 + 40 * i, 400), None) for i in range(5)]
-    pages, entries = sheets.make_sheets(imgs, Options(enhance=False), 4)
+    pages, entries, failed = sheets.make_sheets(imgs, Options(enhance=False), 4)
+    assert failed == []
     assert len(pages) == 2 and pages[0].shape == (3508, 2480, 3)
     assert [e[0] for e in entries] == [1, 1, 1, 1, 2]
     (_, _), slots, gap = sheets.plan(4)

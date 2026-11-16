@@ -55,7 +55,7 @@ def build_parser():
     g.add_argument("--anchor", choices=ANCHORS, default="center", help="which part to keep when cropping")
     g.add_argument("--margin", type=float, default=None, metavar="MM",
                    help="white margin in mm, for printers that can't print borderless "
-                        "(default: 0, or 6 for posters)")
+                        "(default: 0; 6 for posters, 5 for photo sheets)")
     g.add_argument("--trim-border", action="store_true", help="remove plain outer margins first")
     g.add_argument("--trim-tolerance", type=int, default=18, metavar="N",
                    help="how far (0-255) a pixel may differ from the margin color (default: %(default)s)")
@@ -173,7 +173,16 @@ def make_sheets(images, args, opts):
         return 1
     if opts.ai or opts.max_quality:
         print("upscaling with AI where needed (seconds per image on a GPU, minutes on CPU)", flush=True)
-    pages, entries = sheets.make_sheets(loaded, opts, args.per_page)
+    try:
+        pages, entries, failed = sheets.make_sheets(loaded, opts, args.per_page)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for name, reason in failed:
+        failures += 1
+        print(f"{name}\n  error: {reason}", file=sys.stderr)
+    if not pages:
+        return 1
     for sheet, name, r in entries:
         notes = [f"sheet {sheet}", f"{r.effective_dpi:.0f} DPI, {r.quality}"]
         if r.orientation:
@@ -215,6 +224,12 @@ def main(argv=None):
     if args.per_page > 1 and args.poster:
         print("error: --per-page and --poster can't be combined", file=sys.stderr)
         return 2
+    if args.per_page > 1:
+        ignored = [flag for flag, on in (("--orientation", args.orientation != "auto"),
+                                         ("--combine", args.combine), ("--no-pdf", args.no_pdf)) if on]
+        if ignored:
+            print(f"note: {', '.join(ignored)} {'does' if len(ignored) == 1 else 'do'} not apply to photo sheets "
+                  "(portrait pages, one PDF)", file=sys.stderr)
 
     if opts.max_quality:
         from . import maxq
@@ -241,11 +256,17 @@ def main(argv=None):
     if args.grid:
         out_dir = Path(args.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        failures = 0
         for path in images:
             grid = out_dir / f"{names[path]}_grid.jpg"
-            files.save_grid(files.load_rgb(path), grid)
+            try:
+                files.save_grid(files.load_rgb(path), grid)
+            except Exception as exc:
+                failures += 1
+                print(f"{path.name}\n  error: {exc}", file=sys.stderr)
+                continue
             print(f"{path.name}\n  saved       {grid}")
-        return 0
+        return 1 if failures else 0
 
     if args.per_page > 1:
         return make_sheets(images, args, opts)

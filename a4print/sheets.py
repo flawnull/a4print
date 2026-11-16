@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from . import layout
-from .pipeline import Report, clean_source, render
+from .pipeline import Report, check_options, clean_source, render
 
 GRIDS = {2: (1, 2), 4: (2, 2), 6: (2, 3), 8: (2, 4), 9: (3, 3), 12: (3, 4)}   # columns x rows
 GUIDE_GRAY = (200, 200, 200)
@@ -68,22 +68,29 @@ def fit_into_slot(arr, opts, slot, jpeg_quality=None):
 def make_sheets(images, opts, per_page):
     """Lay out `images` ((name, array, jpeg_quality) tuples) on sheets.
 
-    Returns (sheets, entries): RGB page arrays, and (sheet number, name,
-    report) for each image."""
+    Returns (sheets, entries, failed): RGB page arrays, (sheet number,
+    name, report) for each image placed, and (name, reason) for each image
+    that couldn't be prepared. The others still get their sheets."""
+    check_options(opts)
     margin = 5.0 if opts.margin is None else opts.margin
     (page_w, page_h), slots, gap = plan(per_page, opts.paper, margin)
+    ready, failed = [], []
+    for name, arr, quality in images:      # all slots are the same size
+        try:
+            out, report = fit_into_slot(arr, opts, slots[0], quality)
+        except Exception as exc:           # one bad image must not lose the batch
+            failed.append((name, str(exc)))
+            continue
+        ready.append((name, np.stack([out] * 3, axis=-1) if out.ndim == 2 else out, report))
     sheets, entries = [], []
-    for start in range(0, len(images), per_page):
+    for start in range(0, len(ready), per_page):
         page = np.full((page_h, page_w, 3), 255, np.uint8)
-        group = images[start:start + per_page]
-        for slot, (name, arr, quality) in zip(slots, group, strict=False):
-            out, report = fit_into_slot(arr, opts, slot, quality)
-            if out.ndim == 2:
-                out = np.stack([out] * 3, axis=-1)
+        group = ready[start:start + per_page]
+        for slot, (name, out, report) in zip(slots, group, strict=False):
             page[slot.y:slot.y + slot.h, slot.x:slot.x + slot.w] = out
             entries.append((len(sheets) + 1, name, report))
         sheets.append(_draw_guides(page, slots[:len(group)], gap))
-    return sheets, entries
+    return sheets, entries, failed
 
 
 def _draw_guides(page, slots, gap):

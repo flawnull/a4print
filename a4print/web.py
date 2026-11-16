@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pikepdf
 
-from . import calibrate, cli, files, maxq, setup_ai, upscale
+from . import calibrate, cli, files, layout, maxq, setup_ai, upscale
 from .pipeline import process_file
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
@@ -48,9 +48,12 @@ CONTENT_TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/
 
 def safe_name(name):
     """A plain file name from whatever the browser sent."""
-    name = Path(name or "").name
-    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or "image"
-    return name[:120]
+    path = Path(Path(name or "").name)
+    # Clean the name and the extension separately, so a name without ASCII
+    # letters ("фото.jpg") or a very long one still keeps its extension.
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", path.stem).strip("._")[:80] or "image"
+    suffix = re.sub(r"[^A-Za-z0-9]+", "", path.suffix)[:8]
+    return f"{stem}.{suffix}" if suffix else stem
 
 
 def file_role(name):
@@ -200,7 +203,10 @@ class App:
             if not loaded:
                 return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "none of the images could be read"}
             try:
-                pages, entries = sheets.make_sheets(loaded, opts, per_page)
+                pages, entries, failed = sheets.make_sheets(loaded, opts, per_page)
+                lines += [[name, f"skipped: {reason}"] for name, reason in failed]
+                if not pages:
+                    return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "; ".join(f"{n}: {r}" for n, r in failed)}
             except Exception as exc:
                 return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
             pdf = self.root / job / f"a4print_sheets_{opts.paper}.pdf"
@@ -266,6 +272,7 @@ class App:
                         + ("; small text kept as is" if "small text" in report.resize_method else ""))
                        if report.content and "skipped" not in report.resize_method else "",
             "fill": report.fill_reason or report.fill,
+            "detail_cm": report.detail_cm,
             "poster": (f"{report.poster.cols}x{report.poster.rows} sheets, "
                        f"{report.poster.poster_mm[0] / 10:.0f} x {report.poster.poster_mm[1] / 10:.0f} cm")
                       if report.poster else "",
@@ -298,7 +305,7 @@ class App:
         return out.getvalue()
 
     def output_file(self, job, name):
-        if not re.fullmatch(r"[0-9a-f]{16}", job) or safe_name(name) != name:
+        if not re.fullmatch(r"[0-9a-f]{16}", job) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,200}", name):
             return None
         path = self.root / job / name
         return path if path.is_file() else None
@@ -317,7 +324,7 @@ def paper_info():
             return f"{mm[0] / 10:.0f} x {mm[1] / 10:.0f} cm"
         entry = {"name": layout.PAPER_NAMES[paper],
                  "page": "8.5 x 11 in" if paper == "letter" else size((w, h))}
-        for cols, rows in ((2, 2), (3, 3)):
+        for cols, rows in ((2, 2), (3, 3), (3, 2), (2, 3), (4, 4)):
             plan = poster.make_plan(1500, 1000, cols, rows, paper_mm=(w, h))
             iso = f", {plan.size_name}" if plan.size_name and paper != "letter" else ""
             entry[f"{cols}x{rows}"] = size(plan.poster_mm) + iso
@@ -375,9 +382,12 @@ def make_handler(app):
             elif url.path == "/status":
                 self._json(HTTPStatus.OK, app.status())
             elif url.path == "/test-page.pdf":
-                path = app.root / "a4print_test_page.pdf"
+                paper = parse_qs(url.query).get("paper", [""])[0]
+                if paper not in layout.PAPERS:
+                    paper = calibrate.load_settings().get("paper", "a4")
+                path = app.root / f"a4print_test_page_{paper}.pdf"
                 if not path.exists():
-                    calibrate.write_test_page(path)
+                    calibrate.write_test_page(path, paper)
                 self._send(HTTPStatus.OK, path.read_bytes(), "application/pdf",
                            {"Content-Disposition": 'attachment; filename="a4print_test_page.pdf"'})
             elif url.path == "/all.pdf":
@@ -653,8 +663,8 @@ PAGE = r"""<!doctype html>
         </label>
         <label>Other poster sizes
           <select id="poster-more">
-            <option value="">None</option><option value="3x2">3x2 sheets, banner</option>
-            <option value="2x3">2x3 sheets, tall</option><option value="4x4">4x4 sheets, 111 x 76 cm</option>
+            <option value="">None</option><option value="3x2">3x2 sheets</option>
+            <option value="2x3">2x3 sheets</option><option value="4x4">4x4 sheets</option>
           </select>
         </label>
         <label>White margin in mm (for printers that can't print to the edge)
@@ -665,7 +675,7 @@ PAGE = r"""<!doctype html>
       </div>
       <div class="calib">
         <b>Printer calibration</b> (optional, once per printer): prints come out darker than the
-        screen on many printers. <a href="/test-page.pdf" download>Print the test page</a> at 100%,
+        screen on many printers. <a href="/test-page.pdf" id="cal-link" download>Print the test page</a> at 100%,
         then give your answers:
         <div class="calib-row">
           <label>First square you can tell from black
@@ -730,6 +740,9 @@ function showPaper(paper) {
   $("size-page-info").textContent = "One sheet, " + info.page;
   $("size-2x2-info").textContent = "To glue, " + info["2x2"];
   $("size-3x3-info").textContent = "To glue, " + info["3x3"];
+  for (const opt of $("poster-more").options)
+    if (opt.value) opt.textContent = opt.value + " sheets, " + info[opt.value];
+  $("cal-link").href = "/test-page.pdf?paper=" + paper;
 }
 $("paper").addEventListener("change", () => { remember("a4print-paper", $("paper").value); showPaper($("paper").value); });
 function initialPaper(saved) {
@@ -888,7 +901,7 @@ function verdict(summary, aiChecked) {
 }
 
 // Before/after comparison at print size: drag (or use the arrow keys) to move the divider.
-function slider(beforeUrl, afterUrl) {
+function slider(beforeUrl, afterUrl, cm) {
   const wrap = el("figure", {class: "compare"});
   const stage = el("div", {class: "stage"});
   const after = el("img", {src: afterUrl, alt: "a4print result"});
@@ -901,7 +914,7 @@ function slider(beforeUrl, afterUrl) {
   stage.append(after, before, line, range);
   move(50);
   const cap = el("figcaption");
-  cap.append(el("span", {}, "Plain enlargement"), el("span", {}, "Detail at print size (5 x 5 cm)"),
+  cap.append(el("span", {}, "Plain enlargement"), el("span", {}, "Detail at print size (" + cm + " x " + cm + " cm)"),
              el("span", {}, "a4print"));
   wrap.append(stage, cap);
   return wrap;
@@ -986,7 +999,7 @@ go.addEventListener("click", async () => {
         (s.ai_used ? " Sharpened with AI, " + s.ai_note + "." : "")));
       const role = r => data.files.find(f => f.role === r);
       const plain = role("detail_plain"), final = role("detail_final");
-      if (plain && final) box.append(slider(plain.url, final.url));
+      if (plain && final) box.append(slider(plain.url, final.url, s.detail_cm || 5));
       const preview = role("preview");
       if (preview) {
         const whole = el("details", {class: "whole"});
