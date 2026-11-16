@@ -965,9 +965,18 @@ go.addEventListener("click", async () => {
     results.prepend(box);
     box.scrollIntoView({behavior: "smooth", block: "start"});
     params.set("name", file.name);
+    // Show elapsed time, so a long AI job doesn't look frozen.
+    const waiting = box.querySelector(".what"), base = waiting.textContent, began = Date.now();
+    const timer = setInterval(() => {
+      const sec = Math.round((Date.now() - began) / 1000);
+      waiting.textContent = base + " " + Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+    }, 1000);
     try {
-      const response = await fetch("/process?" + params, {method: "POST", body: file, headers: {"X-A4print": "1"}});
-      const data = await response.json();
+      let response, data;
+      try {
+        response = await fetch("/process?" + params, {method: "POST", body: file, headers: {"X-A4print": "1"}});
+        data = await response.json();
+      } finally { clearInterval(timer); }
       box.querySelector(".what").remove();
       if (!response.ok) { box.append(el("p", {class: "error"}, data.error || "Something went wrong.")); continue; }
       const s = data.summary;
