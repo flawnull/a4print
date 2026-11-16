@@ -65,3 +65,39 @@ def test_automatic_crop_keeps_a_face_in_the_frame():
 def test_no_faces_means_a_centered_crop():
     _, report = prepare(gradient(1500, 500), Options(fill="crop", orientation="portrait", enhance=False))
     assert report.crop_note == ""
+
+
+def test_poster_takes_a_chosen_crop():
+    from a4print.pipeline import prepare_poster
+
+    wide = gradient(1600, 700)                       # red rises left to right
+    _, left, r1 = prepare_poster(wide, Options(poster=(2, 2), crop_at=(0.0, 0.5), enhance=False))
+    _, right, r2 = prepare_poster(wide, Options(poster=(2, 2), crop_at=(1.0, 0.5), enhance=False))
+    assert r1.fill == r2.fill == "crop"
+    assert left[..., 0].mean() + 60 < right[..., 0].mean()
+
+
+def test_page_script_uses_the_planner_defaults():
+    """The crop preview recomputes the poster shape in the browser; its
+    constants must stay in step with the planner's defaults."""
+    import inspect
+
+    from a4print import pipeline, poster
+
+    assert "const POSTER_OVERLAP = 10;" in web.PAGE and Options().overlap == 10.0
+    assert "isNaN(typed) ? 6 : typed" in web.PAGE
+    assert "margin = 6.0 if opts.margin is None" in inspect.getsource(pipeline.prepare_poster)
+    assert inspect.signature(poster.make_plan).parameters["overlap_mm"].default == 10.0
+
+
+def test_web_summary_mentions_a_chosen_crop(tmp_path):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(gradient(1600, 700)).save(buf, "PNG")
+    app = web.App(tmp_path)
+    status, data = app.process("w.png", buf.getvalue(), {"poster": ["2x2"], "fill": ["crop"],
+                                                         "crop_at": ["0.0,50.0"], "no_enhance": ["1"]})
+    assert status == 200 and data["summary"]["fill"] == "fills the poster with the part you framed"

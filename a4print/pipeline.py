@@ -307,6 +307,7 @@ def prepare_poster(arr, opts, jpeg_quality=None):
     report.orientation = plan.sheet_orientation
 
     art = render(arr, opts, plan.render_size, report, jpeg_quality, plan.render_dpi)
+    report.fill_reason = report.fill_reason.replace("page", "poster")   # the wording is shared with pages
     sheets = poster.slice_sheets(art, plan)
     return sheets, poster.overview(art, plan), report
 

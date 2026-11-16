@@ -272,7 +272,9 @@ class App:
                         + ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
                         + ("; small text kept as is" if "small text" in report.resize_method else ""))
                        if report.content and "skipped" not in report.resize_method else "",
-            "fill": report.fill_reason or report.fill,
+            "fill": ("fills the " + ("poster" if report.poster else "page") + " with the part you framed"
+                     if opts.crop_at is not None and report.fill == "crop"
+                     else report.fill_reason or report.fill),
             "detail_cm": report.detail_cm,
             "poster": (f"{report.poster.cols}x{report.poster.rows} sheets, "
                        f"{report.poster.poster_mm[0] / 10:.0f} x {report.poster.poster_mm[1] / 10:.0f} cm")
@@ -571,6 +573,9 @@ PAGE = r"""<!doctype html>
   #crop-frame { position: absolute; box-sizing: border-box; border: 2px solid #fff; cursor: grab;
                 box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); }
   #crop-frame:focus-visible { outline: 3px solid var(--accent); outline-offset: -5px; }
+  #crop-frame i { position: absolute; background: rgba(255, 255, 255, .75); pointer-events: none; }
+  #crop-frame i.v { top: 0; bottom: 0; width: 1px; }
+  #crop-frame i.h { left: 0; right: 0; height: 1px; }
   #crop-reset { display: block; margin-top: 8px; }
   .erase-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0;
                  touch-action: none; cursor: crosshair; user-select: none; }
@@ -845,20 +850,46 @@ function drawEraseBoxes(extra) {
 // Crop tool: a page-shaped frame on the chosen image. Dragging it fills the
 // page with the framed part (sent as fill=crop and crop_at).
 let cropPos = {x: 0.5, y: 0.5}, cropTouched = false, cropUrl = null;
-function singlePage() {
+const POSTER_OVERLAP = 10;   // mm, the planner's default
+function printTarget() {
+  // "" for one page, "2x2" style for a poster, null for photo sheets.
   const picked = document.querySelector("input[name=poster]:checked");
-  return (!picked || picked.value === "") && !$("poster-more").value;
+  const value = $("poster-more").value || (picked ? picked.value : "");
+  return value === "sheet" ? null : value;
 }
+function singlePage() { return printTarget() !== null; }   // the crop tool covers pages and posters
 function cropShape() {
-  const img = $("crop-img");
-  if (!img.naturalWidth) return null;
+  const img = $("crop-img"), target = printTarget();
+  if (!img.naturalWidth || target === null) return null;
   const [pw, ph] = PAPER_INFO[$("paper").value].mm;
-  const margin = Math.max(0, parseFloat(document.querySelector("input[name=margin]").value) || 0);
+  const typed = parseFloat(document.querySelector("input[name=margin]").value);
   const shape = img.naturalWidth / img.naturalHeight;
-  let turn = document.querySelector("select[name=orientation]").value;
-  if (turn === "auto") turn = shape > 1 ? "landscape" : "portrait";
-  const page = turn === "landscape" ? (ph - 2 * margin) / (pw - 2 * margin) : (pw - 2 * margin) / (ph - 2 * margin);
-  return shape > page ? {w: page / shape, h: 1} : {w: 1, h: shape / page};
+  const turn = document.querySelector("select[name=orientation]").value;
+  let page, lines = {x: [], y: []};
+  if (!target) {
+    const margin = Math.max(0, typed || 0);
+    const o = turn === "auto" ? (shape > 1 ? "landscape" : "portrait") : turn;
+    page = o === "landscape" ? (ph - 2 * margin) / (pw - 2 * margin) : (pw - 2 * margin) / (ph - 2 * margin);
+  } else {
+    // Same choice as the poster planner: portrait or landscape sheets,
+    // whichever gives the poster shape closest to the image's.
+    const [cols, rows] = target.split("x").map(Number), margin = Math.max(0, isNaN(typed) ? 6 : typed);
+    let best = null;
+    for (const [sw, sh] of [[pw, ph], [ph, pw]]) {
+      const aw = sw - 2 * margin, ah = sh - 2 * margin;
+      const w = cols * aw - (cols - 1) * POSTER_OVERLAP, h = rows * ah - (rows - 1) * POSTER_OVERLAP;
+      if (turn !== "auto" && (h >= w) !== (turn === "portrait")) continue;
+      const off = Math.abs(Math.log(w / h) - Math.log(shape));
+      if (!best || off < best.off) best = {off, w, h, aw, ah, cols, rows};
+    }
+    if (!best) return null;
+    page = best.w / best.h;
+    for (let c = 1; c < best.cols; c++) lines.x.push((c * (best.aw - POSTER_OVERLAP) + POSTER_OVERLAP / 2) / best.w);
+    for (let r = 1; r < best.rows; r++) lines.y.push((r * (best.ah - POSTER_OVERLAP) + POSTER_OVERLAP / 2) / best.h);
+  }
+  const g = shape > page ? {w: page / shape, h: 1} : {w: 1, h: shape / page};
+  g.lines = lines; g.poster = !!target;
+  return g;
 }
 function drawCrop() {
   const one = chosen.length === 1, g = one && singlePage() ? cropShape() : null;
@@ -867,18 +898,24 @@ function drawCrop() {
   const help = $("crop-help");
   if (!g) {
     help.textContent = !chosen.length ? "Choose one image first." : !one ? "This works with one image at a time."
-      : !singlePage() ? "Choosing the crop works for single pages, not posters or photo sheets."
-      : help.textContent;
+      : printTarget() === null ? "Choosing the crop works for pages and posters, not photo sheets."
+      : $("crop-img").naturalWidth ? "This poster shape isn't possible in that orientation." : help.textContent;
     return;
   }
   const frame = $("crop-frame"), cut = Math.round((1 - g.w * g.h) * 100);
   frame.style.width = g.w * 100 + "%"; frame.style.height = g.h * 100 + "%";
   frame.style.left = cropPos.x * (1 - g.w) * 100 + "%"; frame.style.top = cropPos.y * (1 - g.h) * 100 + "%";
   frame.setAttribute("aria-valuenow", Math.round((g.w < 1 ? cropPos.x : cropPos.y) * 100));
-  help.textContent = cut < 1 ? "This image already has the page's shape, so nothing gets cropped."
-    : cropTouched ? "The print fills the page with the framed part; " + cut + "% of the image is cut off."
+  // On a poster, thin lines show where the sheets meet.
+  frame.replaceChildren();
+  for (const x of g.lines.x) { const l = el("i"); l.style.left = x * 100 + "%"; l.className = "v"; frame.append(l); }
+  for (const y of g.lines.y) { const l = el("i"); l.style.top = y * 100 + "%"; l.className = "h"; frame.append(l); }
+  const what = g.poster ? "poster" : "page";
+  help.textContent = cut < 1 ? "This image already has the " + what + "'s shape, so nothing gets cropped."
+    : cropTouched ? "The print fills the " + what + " with the framed part; " + cut + "% of the image is cut off."
     : "Automatic: artwork is kept whole, and photos are cropped only when little is lost. "
-      + "Drag the frame to fill the page with the part you choose (" + cut + "% would be cut off).";
+      + "Drag the frame to fill the " + what + " with the part you choose (" + cut + "% would be cut off)."
+      + (g.poster ? " The thin lines show where the sheets meet." : "");
 }
 function setupCrop() {
   cropPos = {x: 0.5, y: 0.5}; cropTouched = false;
@@ -1000,6 +1037,7 @@ function verdict(summary, aiChecked) {
 
 // Before/after comparison at print size: drag (or use the arrow keys) to move the divider.
 function slider(beforeUrl, afterUrl, cm) {
+  if (Math.abs(cm - Math.round(cm)) <= 0.15) cm = Math.round(cm);   // "5 x 5 cm", not "5.1 x 5.1 cm"
   const wrap = el("figure", {class: "compare"});
   const stage = el("div", {class: "stage"});
   const after = el("img", {src: afterUrl, alt: "a4print result"});

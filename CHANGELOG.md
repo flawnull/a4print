@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.0
+
+- The crop preview works for posters: the frame has the poster's shape for the chosen paper, grid and orientation, with lines where the sheets meet. `--crop-at` applies to posters too.
+- Clearer result wording for posters and chosen crops; README screenshot of the current page.
+
 ## 0.12.0
 
 - Web page: "Choose what gets cropped" shows the page-shaped frame on the image; drag it or use the arrow keys.
