@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0
+
+- Web page: "Choose what gets cropped" shows the page-shaped frame on the image; drag it or use the arrow keys.
+- `--crop-at X,Y` places the crop anywhere, in percent.
+- Automatic crops keep faces in the frame: the crop shifts just enough that faces are not cut.
+
 ## 0.11.0
 
 - Web page: erase a date stamp or mark by dragging boxes on the image.

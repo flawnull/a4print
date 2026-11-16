@@ -37,6 +37,7 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 # Query parameter -> command-line flag. Flags without a value are switches.
 VALUE_FLAGS = {
     "paper": "--paper", "fill": "--fill", "anchor": "--anchor", "orientation": "--orientation",
+    "crop_at": "--crop-at",
     "poster": "--poster", "margin": "--margin", "overlap": "--overlap",
     "ai_strength": "--ai-strength",
 }
@@ -322,7 +323,7 @@ def paper_info():
             if paper == "letter":
                 return f"{mm[0] / 25.4:.0f} x {mm[1] / 25.4:.0f} in"
             return f"{mm[0] / 10:.0f} x {mm[1] / 10:.0f} cm"
-        entry = {"name": layout.PAPER_NAMES[paper],
+        entry = {"name": layout.PAPER_NAMES[paper], "mm": [w, h],
                  "page": "8.5 x 11 in" if paper == "letter" else size((w, h))}
         for cols, rows in ((2, 2), (3, 3), (3, 2), (2, 3), (4, 4)):
             plan = poster.make_plan(1500, 1000, cols, rows, paper_mm=(w, h))
@@ -564,6 +565,13 @@ PAGE = r"""<!doctype html>
                         margin: 6px auto 0; font-size: 13px; color: var(--muted); }
   .whole summary { font-size: 14px; }
   .erase-help { font-size: 14px; color: var(--muted); margin: 8px 0; }
+  .crop-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; overflow: hidden;
+                border-radius: 6px; touch-action: none; user-select: none; }
+  .crop-stage img { max-width: 100%; max-height: 520px; }
+  #crop-frame { position: absolute; box-sizing: border-box; border: 2px solid #fff; cursor: grab;
+                box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); }
+  #crop-frame:focus-visible { outline: 3px solid var(--accent); outline-offset: -5px; }
+  #crop-reset { display: block; margin-top: 8px; }
   .erase-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0;
                  touch-action: none; cursor: crosshair; user-select: none; }
   .erase-stage img { max-width: 100%; max-height: 520px; border-radius: 6px; }
@@ -626,6 +634,17 @@ PAGE = r"""<!doctype html>
       <small id="ai-note">Makes small images (like Pinterest downloads) print noticeably sharper.</small>
       <small id="max-note" hidden></small>
     </div>
+
+    <details id="crop-box">
+      <summary>Choose what gets cropped</summary>
+      <p class="erase-help" id="crop-help">Choose one image first.</p>
+      <div class="crop-stage" id="crop-stage" hidden>
+        <img id="crop-img" alt="The chosen image with a frame showing the part that will be printed." draggable="false">
+        <div id="crop-frame" tabindex="0" role="slider" aria-label="Crop position. Drag, or use the arrow keys."
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></div>
+      </div>
+      <button type="button" class="secondary" id="crop-reset" hidden>Back to automatic</button>
+    </details>
 
     <details id="erase-box">
       <summary>Erase a date stamp or mark</summary>
@@ -823,6 +842,84 @@ function drawEraseBoxes(extra) {
   }
   $("erase-clear").hidden = !eraseBoxes.length;
 }
+// Crop tool: a page-shaped frame on the chosen image. Dragging it fills the
+// page with the framed part (sent as fill=crop and crop_at).
+let cropPos = {x: 0.5, y: 0.5}, cropTouched = false, cropUrl = null;
+function singlePage() {
+  const picked = document.querySelector("input[name=poster]:checked");
+  return (!picked || picked.value === "") && !$("poster-more").value;
+}
+function cropShape() {
+  const img = $("crop-img");
+  if (!img.naturalWidth) return null;
+  const [pw, ph] = PAPER_INFO[$("paper").value].mm;
+  const margin = Math.max(0, parseFloat(document.querySelector("input[name=margin]").value) || 0);
+  const shape = img.naturalWidth / img.naturalHeight;
+  let turn = document.querySelector("select[name=orientation]").value;
+  if (turn === "auto") turn = shape > 1 ? "landscape" : "portrait";
+  const page = turn === "landscape" ? (ph - 2 * margin) / (pw - 2 * margin) : (pw - 2 * margin) / (ph - 2 * margin);
+  return shape > page ? {w: page / shape, h: 1} : {w: 1, h: shape / page};
+}
+function drawCrop() {
+  const one = chosen.length === 1, g = one && singlePage() ? cropShape() : null;
+  $("crop-stage").hidden = !g;
+  $("crop-reset").hidden = !(g && cropTouched);
+  const help = $("crop-help");
+  if (!g) {
+    help.textContent = !chosen.length ? "Choose one image first." : !one ? "This works with one image at a time."
+      : !singlePage() ? "Choosing the crop works for single pages, not posters or photo sheets."
+      : help.textContent;
+    return;
+  }
+  const frame = $("crop-frame"), cut = Math.round((1 - g.w * g.h) * 100);
+  frame.style.width = g.w * 100 + "%"; frame.style.height = g.h * 100 + "%";
+  frame.style.left = cropPos.x * (1 - g.w) * 100 + "%"; frame.style.top = cropPos.y * (1 - g.h) * 100 + "%";
+  frame.setAttribute("aria-valuenow", Math.round((g.w < 1 ? cropPos.x : cropPos.y) * 100));
+  help.textContent = cut < 1 ? "This image already has the page's shape, so nothing gets cropped."
+    : cropTouched ? "The print fills the page with the framed part; " + cut + "% of the image is cut off."
+    : "Automatic: artwork is kept whole, and photos are cropped only when little is lost. "
+      + "Drag the frame to fill the page with the part you choose (" + cut + "% would be cut off).";
+}
+function setupCrop() {
+  cropPos = {x: 0.5, y: 0.5}; cropTouched = false;
+  if (cropUrl) { URL.revokeObjectURL(cropUrl); cropUrl = null; }
+  $("crop-img").removeAttribute("src");
+  if (chosen.length === 1) { cropUrl = URL.createObjectURL(chosen[0]); $("crop-img").src = cropUrl; }
+  drawCrop();
+}
+$("crop-img").addEventListener("load", drawCrop);
+$("crop-img").addEventListener("error", () => {
+  $("crop-stage").hidden = true;
+  $("crop-help").textContent = "This browser can't show this file type, so the crop can't be chosen here.";
+});
+(() => {
+  const stage = $("crop-stage"), frame = $("crop-frame"); let from = null;
+  const clamp = v => Math.min(1, Math.max(0, v));
+  const move = (dx, dy) => {
+    const g = cropShape(); if (!g) return;
+    if (g.w < 1) cropPos.x = clamp(cropPos.x + dx / (1 - g.w));
+    if (g.h < 1) cropPos.y = clamp(cropPos.y + dy / (1 - g.h));
+    cropTouched = true; drawCrop();
+  };
+  stage.addEventListener("pointerdown", e => { e.preventDefault(); from = {x: e.clientX, y: e.clientY}; stage.setPointerCapture(e.pointerId); frame.focus(); });
+  stage.addEventListener("pointermove", e => {
+    if (!from) return;
+    const r = $("crop-img").getBoundingClientRect();
+    move((e.clientX - from.x) / r.width, (e.clientY - from.y) / r.height);
+    from = {x: e.clientX, y: e.clientY};
+  });
+  for (const type of ["pointerup", "pointercancel"]) stage.addEventListener(type, () => { from = null; });
+  frame.addEventListener("keydown", e => {
+    const step = {ArrowLeft: [-0.02, 0], ArrowRight: [0.02, 0], ArrowUp: [0, -0.02], ArrowDown: [0, 0.02]}[e.key];
+    if (step) { e.preventDefault(); move(step[0], step[1]); }
+  });
+  $("crop-reset").addEventListener("click", () => { cropPos = {x: 0.5, y: 0.5}; cropTouched = false; drawCrop(); });
+  for (const sel of ["#paper", "select[name=orientation]", "#poster-more"])
+    document.querySelector(sel).addEventListener("change", drawCrop);
+  document.querySelector("input[name=margin]").addEventListener("input", drawCrop);
+  document.querySelectorAll("input[name=poster]").forEach(r => r.addEventListener("change", drawCrop));
+})();
+
 function setupErase() {
   eraseBoxes = []; drawEraseBoxes();
   if (eraseUrl) { URL.revokeObjectURL(eraseUrl); eraseUrl = null; }
@@ -863,6 +960,7 @@ function choose(list) {
     chosen.length ? chosen.map(f => f.name).join(", ") : "Drop images here or click to choose";
   go.disabled = !chosen.length;
   setupErase();
+  setupCrop();
 }
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
@@ -962,6 +1060,10 @@ go.addEventListener("click", async () => {
   const params = new URLSearchParams();
   for (const [key, value] of new FormData($("opts"))) if (value !== "") params.set(key, value);
   if ($("poster-more").value) params.set("poster", $("poster-more").value);
+  if (chosen.length === 1 && cropTouched && singlePage()) {
+    params.set("fill", "crop");
+    params.set("crop_at", (cropPos.x * 100).toFixed(1) + "," + (cropPos.y * 100).toFixed(1));
+  }
   if (chosen.length === 1) for (const b of eraseBoxes)
     params.append("remove", [b.x, b.y, b.w, b.h].map(v => v.toFixed(2) + "%").join(","));
   if (params.get("poster") === "sheet") {

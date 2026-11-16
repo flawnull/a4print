@@ -194,6 +194,7 @@ holiday.jpg
 | `--fill auto\|crop\|extend\|fit` | `auto` | See [Fill modes](#fill-modes) |
 | `--anchor center\|top\|bottom\|left\|right` | `center` | Which part to keep when cropping |
 | `--paper a4\|letter\|a3` | `a4` | Paper size. `a4print-calibrate --paper letter` makes Letter the default |
+| `--crop-at X,Y` | none | Where to crop, in percent: `0,0` keeps the top left, `50,50` the center, `100,100` the bottom right |
 | `--margin MM` | `0`, posters `6` | White margin around the image, for printers without borderless printing |
 | `--poster COLSxROWS` | off | Split into a poster of several A4 sheets, e.g. `2x2` or `3x3` |
 | `--overlap MM` | `10` | How much neighboring poster sheets overlap, for gluing |
@@ -246,6 +247,10 @@ a4print ~/Pictures/holiday --per-page 6 --paper letter
 | 12 | 3 x 4 | about 6.5 x 7 cm |
 
 Each image goes through the same steps as a full page: the automatic fit, cleanup, AI sharpening if you ask for it, and print tuning. A landscape photo in a portrait slot is turned 90 degrees when that crops less; turn the cut-out print back by hand. All sheets go into one PDF, `a4print_sheets_a4.pdf`, with a preview of the first sheet. The white margin around the page is 5 mm (change it with `--margin`).
+
+On the web page, open **Choose what gets cropped** to see the page-shaped frame on your picture and drag it (or use the arrow keys) to the part you want; the print then fills the page with it. This works for single pages.
+
+When a4print crops a photo by itself, it keeps faces in the frame: the crop moves just far enough that faces, with some room around them, are not cut. `--anchor` or `--crop-at` switch that off.
 
 On the web page, open **Erase a date stamp or mark**, drag a box over each thing to erase on the picture, and make the print as usual. This works with one image at a time.
 

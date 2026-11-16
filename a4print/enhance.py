@@ -99,13 +99,19 @@ _face_detector = None
 
 
 def find_face(arr, max_side=1024):
-    """(x, y, w, h) of the largest face in the image, or None.
+    """(x, y, w, h) of the largest face in the image, or None."""
+    faces = find_faces(arr, max_side)
+    return max(faces, key=lambda f: f[2] * f[3]) if faces else None
+
+
+def find_faces(arr, max_side=1024):
+    """(x, y, w, h) of every face found in the image.
 
     Uses YuNet (MIT license, from the OpenCV model zoo), a small face
     detector that ships with a4print. Runs on a reduced copy for speed."""
     global _face_detector
     if not hasattr(cv2, "FaceDetectorYN") or not _FACE_MODEL.exists():
-        return None
+        return []
     h, w = arr.shape[:2]
     scale = min(1.0, max_side / max(h, w))
     small = cv2.resize(arr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
@@ -116,10 +122,9 @@ def find_face(arr, max_side=1024):
         _face_detector = cv2.FaceDetectorYN.create(str(_FACE_MODEL), "", (320, 320), 0.7)
     _face_detector.setInputSize((bgr.shape[1], bgr.shape[0]))
     _, faces = _face_detector.detect(bgr)
-    if faces is None or not len(faces):
-        return None
-    x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])[:4]
-    return tuple(int(round(v / scale)) for v in (x, y, fw, fh))
+    if faces is None:
+        return []
+    return [tuple(int(round(v / scale)) for v in face[:4]) for face in faces]
 
 
 def to_gray(arr):

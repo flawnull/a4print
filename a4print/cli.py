@@ -26,6 +26,17 @@ def region(text):
     return tuple(values)
 
 
+def crop_position(text):
+    """'30,70' or '30%,70%' -> (0.3, 0.7)."""
+    try:
+        x, y = (float(v.strip().rstrip("%")) for v in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected X,Y in percent, like 50,20, got '{text}'") from None
+    if not (0 <= x <= 100 and 0 <= y <= 100):
+        raise argparse.ArgumentTypeError("X and Y must be between 0 and 100")
+    return x / 100, y / 100
+
+
 def grid(text):
     try:
         return poster.parse_grid(text)
@@ -53,6 +64,9 @@ def build_parser():
                         "little is lost, else fit; crop: fill the page and cut overflow; extend: fit "
                         "and fill the rest with mirrored, blurred edges; fit: fit inside a white border")
     g.add_argument("--anchor", choices=ANCHORS, default="center", help="which part to keep when cropping")
+    g.add_argument("--crop-at", type=crop_position, default=None, metavar="X,Y",
+                   help="where to crop, in percent: 0,0 keeps the top left, 50,50 the center, "
+                        "100,100 the bottom right. Fills the page unless --fill says otherwise")
     g.add_argument("--margin", type=float, default=None, metavar="MM",
                    help="white margin in mm, for printers that can't print borderless "
                         "(default: 0; 6 for posters, 5 for photo sheets)")
@@ -113,7 +127,8 @@ def build_parser():
 
 def options_from_args(args):
     return Options(
-        paper=args.paper, orientation=args.orientation, fill=args.fill, anchor=args.anchor, margin=args.margin,
+        paper=args.paper, orientation=args.orientation, fill=args.fill, anchor=args.anchor,
+        crop_at=args.crop_at, margin=args.margin,
         trim_border=args.trim_border, trim_tolerance=args.trim_tolerance,
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
@@ -145,6 +160,8 @@ def describe(r, opts):
     else:
         lines.append(("page", f"{paper} {r.orientation}, {_fill_text(r)}, {r.resize_method}"))
         lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at {paper}, {r.quality}"))
+    if r.crop_note:
+        lines.append(("crop", r.crop_note))
     if opts.enhance:
         lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
     lines += [("warning", w) for w in r.warnings]

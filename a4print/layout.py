@@ -47,11 +47,13 @@ def target_size(orientation, paper="a4"):
     return (h, w) if orientation == "landscape" else (w, h)
 
 
-def crop_box(src_w, src_h, tgt_w, tgt_h, anchor="center"):
+def crop_box(src_w, src_h, tgt_w, tgt_h, anchor="center", position=None):
     """Largest box in the source with the target's aspect ratio.
 
     Returns (x0, y0, x1, y1) in source pixels. The anchor decides which part
-    is kept when the overflow is cropped.
+    is kept when the overflow is cropped. `position` (fx, fy), each 0 to 1,
+    places the box freely instead: 0 is the left or top edge, 0.5 the
+    center, 1 the right or bottom edge.
     """
     target_ratio = tgt_w / tgt_h
     if src_w / src_h > target_ratio:
@@ -63,8 +65,12 @@ def crop_box(src_w, src_h, tgt_w, tgt_h, anchor="center"):
     crop_w, crop_h = min(crop_w, src_w), min(crop_h, src_h)
 
     spare_x, spare_y = src_w - crop_w, src_h - crop_h
-    x0 = {"left": 0, "right": spare_x}.get(anchor, spare_x // 2)
-    y0 = {"top": 0, "bottom": spare_y}.get(anchor, spare_y // 2)
+    if position is not None:
+        fx, fy = (min(max(float(v), 0.0), 1.0) for v in position)
+        x0, y0 = round(spare_x * fx), round(spare_y * fy)
+    else:
+        x0 = {"left": 0, "right": spare_x}.get(anchor, spare_x // 2)
+        y0 = {"top": 0, "bottom": spare_y}.get(anchor, spare_y // 2)
     return x0, y0, x0 + crop_w, y0 + crop_h
 
 

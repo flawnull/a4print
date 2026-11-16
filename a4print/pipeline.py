@@ -25,6 +25,7 @@ class Options:
     orientation: str = "auto"      # auto | portrait | landscape
     fill: str = "auto"             # auto | crop | extend | fit
     anchor: str = "center"         # crop only
+    crop_at: tuple = None          # (fx, fy) in 0-1: free crop position; implies crop when fill is auto
     margin: float = None           # white margin in mm; None = 0 for A4, 6 for posters
     trim_border: bool = False
     trim_tolerance: int = 18
@@ -58,6 +59,7 @@ class Report:
     quality: str = ""
     fill: str = ""                 # the fill actually used (auto resolves to one)
     fill_reason: str = ""
+    crop_note: str = ""            # set when the crop was moved for faces
     cleanup: str = ""              # why denoise ran, "" if it didn't
     resize_method: str = ""
     content: str = ""              # "artwork" or "photo", when AI ran
@@ -106,6 +108,8 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     mapping = ((0, 0, w, h), None)
 
     fill, pad = opts.fill, 255
+    if opts.crop_at is not None and fill == "auto":
+        fill = "crop"   # a chosen crop position is a request to crop
     if fill == "auto":
         fill, pad, report.fill_reason = layout.auto_fill(arr, area_w, area_h)
     report.fill = "fit" if fill == "pad" else fill
@@ -123,7 +127,12 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     if fill == "pad":
         out_size = (area_w, area_h)
     elif fill == "crop":
-        x0, y0, x1, y1 = layout.crop_box(w, h, area_w, area_h, opts.anchor)
+        x0, y0, x1, y1 = layout.crop_box(w, h, area_w, area_h, opts.anchor, opts.crop_at)
+        if opts.anchor == "center" and opts.crop_at is None and (x1 - x0 < w or y1 - y0 < h):
+            # Nobody chose where to crop: don't cut through a face.
+            moved = _keep_faces_in_frame(arr, (x0, y0, x1, y1))
+            if moved != (x0, y0, x1, y1):
+                (x0, y0, x1, y1), report.crop_note = moved, "crop moved to keep faces in the frame"
         arr = arr[y0:y1, x0:x1]
         out_size = (area_w, area_h)
         mapping = ((x0, y0, x1, y1), (0, 0, area_w, area_h))
@@ -194,6 +203,36 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     if report.detail is not None:
         report.detail_cm = round(report.detail[1].shape[0] / dpi * 2.54, 1)
     return arr
+
+
+def _keep_faces_in_frame(arr, box):
+    """Shift a centered crop box just far enough that the faces in the image
+    (with some room around them) stay inside it. The box keeps its size; if
+    there are no faces, or they already fit, it comes back unchanged."""
+    faces = enhance.find_faces(arr)
+    if not faces:
+        return box
+    biggest = max(f[2] * f[3] for f in faces)
+    faces = [f for f in faces if f[2] * f[3] >= 0.25 * biggest]     # ignore small background faces
+    # The area to keep: all faces, with 35% of a face's size as headroom.
+    left = min(x - 0.35 * fw for x, _, fw, _ in faces)
+    right = max(x + 1.35 * fw for x, _, fw, _ in faces)
+    top = min(y - 0.35 * fh for _, y, _, fh in faces)
+    bottom = max(y + 1.35 * fh for _, y, _, fh in faces)
+    h, w = arr.shape[:2]
+    x0, y0, x1, y1 = box
+
+    def shift(start, size, lo, hi, limit):
+        if hi - lo >= size:                      # can't fit everything: center on it
+            start = (lo + hi - size) / 2
+        elif lo < start:
+            start = lo
+        elif hi > start + size:
+            start = hi - size
+        return int(min(max(round(start), 0), limit - size))
+
+    nx, ny = shift(x0, x1 - x0, left, right, w), shift(y0, y1 - y0, top, bottom, h)
+    return nx, ny, nx + (x1 - x0), ny + (y1 - y0)
 
 
 def detail_pair(source, result, mapping, size=600):
