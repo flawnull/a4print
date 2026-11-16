@@ -247,7 +247,9 @@ a4print ~/Pictures/holiday --per-page 6 --paper letter
 
 Each image goes through the same steps as a full page: the automatic fit, cleanup, AI sharpening if you ask for it, and print tuning. A landscape photo in a portrait slot is turned 90 degrees when that crops less; turn the cut-out print back by hand. All sheets go into one PDF, `a4print_sheets_a4.pdf`, with a preview of the first sheet. The white margin around the page is 5 mm (change it with `--margin`).
 
-On the web page, choose **Photo sheet** as the print size, pick how many per page, and drop in all the images at once.
+On the web page, open **Erase a date stamp or mark**, drag a box over each thing to erase on the picture, and make the print as usual. This works with one image at a time.
+
+For photo sheets on the web page, choose **Photo sheet** as the print size, pick how many per page, and drop in all the images at once.
 
 ## Posters
 

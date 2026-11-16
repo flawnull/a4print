@@ -22,7 +22,7 @@ flowchart LR
 In order:
 
 1. Loads the image, applies EXIF rotation, puts transparency on white, and converts any embedded color profile (Adobe RGB, Display P3, CMYK) to sRGB.
-2. Inpaints `--remove` regions with OpenCV (Telea method).
+2. Erases `--remove` regions. Inside each box it finds the marks themselves (text strokes, digits, a small logo) as the pixels that stand out from a median-filtered background, and inpaints only those with OpenCV (Telea method). The background between them stays original, and a frame line next to the box is not smeared in. A solid patch, or a mark too faint to tell apart, gets the whole box filled.
 3. Trims plain margins if `--trim-border` is set. The margin color is the median of the outermost pixel ring, so white, beige and any flat color work.
 4. Detects black-and-white images: 99% of pixels must be near-neutral (Lab chroma under 6) and almost none clearly colored, so a small colored logo keeps the image in color. B&W images are processed as one gray channel and saved with R = G = B, so a slight tint in the file can't turn into a color cast on paper.
 5. Cleans up, only when needed. Small images are cleaned before enlarging, so problems aren't enlarged. Large images are shrunk first, which is faster and already hides most noise.

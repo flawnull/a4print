@@ -211,3 +211,28 @@ def test_file_roles():
     assert web.file_role("x_detail_plain.jpg") == "detail_plain"
     assert web.file_role("x_poster_preview.jpg") == "preview"
     assert web.file_role("x_a4.pdf") == "pdf" and web.file_role("x_a4.png") == "png"
+
+
+def test_remove_boxes_from_the_page(server):
+    """Boxes drawn on the page arrive as repeated remove= parameters."""
+    import numpy as np
+
+    img = np.zeros((300, 400, 3), np.uint8)
+    img[:] = (90, 140, 60)
+    img[200:230, 250:380] = 255                       # a white "date stamp"
+    q = "name=a.png&fill=fit&no_enhance=1&remove=60%25,63%25,37%25,16%25"
+    status, data = post(server + "/process?" + q, png_bytes(img))
+    assert status == 200
+    png = next(f for f in data["files"] if f["role"] == "png")
+    out = np.asarray(Image.open(io.BytesIO(get(server + png["url"])[2])).convert("RGB")).astype(int)
+    assert out.shape[:2] == (2480, 3508)
+    # The 400 x 300 image is fitted at 8.27x, 100 px in from the left; the
+    # stamp's center (315, 215) lands at about (2704, 1777).
+    assert np.abs(out[1777, 2704] - (90, 140, 60)).max() < 15
+    status, data = post(server + "/process?name=a.png&remove=nonsense", png_bytes(img))
+    assert status == 400
+
+
+def test_remove_boxes_are_limited():
+    argv = web.build_argv("in.png", "out", {"remove": ["1%,1%,2%,2%"] * 50})
+    assert argv.count("--remove") == web.MAX_REMOVE_REGIONS

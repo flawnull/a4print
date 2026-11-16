@@ -137,8 +137,14 @@ def resolve_region(region, width, height):
 
 
 def inpaint_regions(arr, regions, radius=5):
-    """Erase rectangles (x, y, w, h) by filling them from the surroundings.
-    Values are pixels or percentages, see resolve_region."""
+    """Erase what's inside rectangles (x, y, w, h), filling from the
+    surroundings. Values are pixels or percentages, see resolve_region.
+
+    Inside each box, only the marks themselves (text strokes, a small logo)
+    are filled, found by _marks_in_box; the background between them is left
+    untouched. Filling a whole box smears in whatever borders it, such as a
+    nearby frame line. The whole box is filled when no separate marks can
+    be told apart (a solid patch, or a faint watermark)."""
     h, w = arr.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
     for region in regions:
@@ -147,10 +153,77 @@ def inpaint_regions(arr, regions, radius=5):
         x1, y1 = min(w, x + rw), min(h, y + rh)
         if x1 <= x0 or y1 <= y0:
             raise ValueError(f"--remove {x},{y},{rw},{rh} is outside the {w}x{h} image")
-        mask[y0:y1, x0:x1] = 255
-    # Grow the mask a little so anti-aliased text edges go too.
+        marks = _marks_in_box(arr, x0, y0, x1, y1)
+        if marks is None:
+            mask[y0:y1, x0:x1] = 255
+        else:
+            mask[y0:y1, x0:x1] |= marks
+    # Grow the mask a little so anti-aliased edges and JPEG halos go too.
     mask = cv2.dilate(mask, np.ones((5, 5), np.uint8))
     return cv2.inpaint(arr, mask, radius, cv2.INPAINT_TELEA)
+
+
+def _marks_in_box(arr, x0, y0, x1, y1, threshold=18):
+    """Mask (uint8, box-sized) of the pixels in a box that stand out from its
+    background, or None when that can't be decided.
+
+    The background is estimated with a median filter about half as wide as
+    the box's short side: thin things (text strokes, digits, line art)
+    vanish from it while the surroundings keep their shape. Pixels that
+    differ from it are the marks. A solid patch survives the filter, so
+    nothing stands out and the caller fills the whole box."""
+    h, w = arr.shape[:2]
+    short = min(x1 - x0, y1 - y0)
+    pad = short
+    wx0, wy0, wx1, wy1 = max(0, x0 - pad), max(0, y0 - pad), min(w, x1 + pad), min(h, y1 + pad)
+    window = arr[wy0:wy1, wx0:wx1]
+    # Work on a reduced copy where the short side is about 24 px: fast, and
+    # the kernel stays within what medianBlur handles well.
+    scale = min(1.0, 24 / short)
+    small = cv2.resize(window, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else window
+    kernel = int(0.5 * short * scale) | 1
+    if kernel < 3 or min(small.shape[:2]) < 3:
+        return None
+    background = cv2.medianBlur(small, min(kernel, 255))
+    background = cv2.resize(background, (window.shape[1], window.shape[0]), interpolation=cv2.INTER_LINEAR)
+    diff = np.abs(window.astype(np.int16) - background.astype(np.int16))
+    if diff.ndim == 3:
+        diff = diff.max(axis=2)
+    box = (slice(y0 - wy0, y1 - wy0), slice(x0 - wx0, x1 - wx0))
+    # On a textured background (wood, fabric, foliage) the texture itself
+    # differs from the smoothed background. Measure that outside the box and
+    # only count pixels that stand out well beyond it.
+    outside = np.ones(diff.shape, bool)
+    outside[box] = False
+    if outside.any():
+        threshold = max(threshold, 3.0 * float(np.percentile(diff[outside], 75)))
+    # A solid patch (a sticker, a filled logo) survives the median filter, so
+    # only its outline would stand out. It shows as a jump in the background
+    # across the box's border: compare a rim just inside with one just outside.
+    rim = max(2, short // 6)
+    inner = np.zeros(diff.shape, bool)
+    inner[box] = True
+    inner[box[0].start + rim:box[0].stop - rim, box[1].start + rim:box[1].stop - rim] = False
+    outer = np.zeros(diff.shape, bool)
+    outer[max(0, box[0].start - rim):box[0].stop + rim, max(0, box[1].start - rim):box[1].stop + rim] = True
+    outer[box] = False
+    if outer.any():
+        flat_bg = background.reshape(*background.shape[:2], -1).astype(np.float32)
+        jump = np.abs(np.median(flat_bg[inner], axis=0) - np.median(flat_bg[outer], axis=0)).max()
+        if jump > 25:
+            return None
+    marks = (diff[box] > threshold).astype(np.uint8)
+    # Whatever the marks enclose belongs to them: the inside of a solid
+    # shape whose outline was found, or the counters of letters. Flood the
+    # background in from the box's border; what it can't reach is enclosed.
+    padded = np.pad(marks, 1)
+    reached = padded.copy()
+    cv2.floodFill(reached, None, (0, 0), 2)
+    marks = (reached[1:-1, 1:-1] != 2)
+    share = marks.mean()
+    if share < 0.005 or share > 0.6:
+        return None   # nothing stands out, or the box is one solid patch: fill all of it
+    return marks.astype(np.uint8) * 255
 
 
 def estimate_noise(arr):

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from a4print import enhance
 
@@ -81,3 +82,44 @@ def test_inpaint_removes_text_box():
     img[200:230, 250:380] = 255  # a white "date stamp"
     out = enhance.inpaint_regions(img, [(250, 200, 130, 30)])
     assert np.abs(out[215, 315].astype(int) - (90, 140, 60)).max() < 10
+
+
+def _poster_with_credit():
+    """Paper with a dark frame line and a small credit line just below it."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    rng = np.random.default_rng(0)
+    paper = np.clip(np.array([226, 221, 204]) + rng.normal(0, 4, (400, 600, 1)), 0, 255).astype(np.uint8)
+    img = Image.fromarray(paper)
+    d = ImageDraw.Draw(img)
+    d.rectangle([10, 10, 589, 360], outline=(30, 30, 30), width=3)
+    d.text((20, 372), "Designer: example  9/25/25", fill=(40, 40, 40), font=ImageFont.load_default(size=13))
+    return np.asarray(img)
+
+
+def test_erasing_text_keeps_the_neighboring_frame_line():
+    """Filling the whole box smeared the frame line into it; only the text
+    strokes are filled now."""
+    img = _poster_with_credit()
+    box = (12, 363, 300, 30)                       # touches the frame line above
+    out = enhance.inpaint_regions(img, [box]).astype(int)
+    band = out[368:392, 15:300]
+    assert band.min() > 150                         # no text, no dark smear
+    assert np.abs(out[358:361, 50:550] - img[358:361, 50:550]).max() <= 2      # frame line untouched
+    untouched = np.abs(out[363:393, 12:312] - img[363:393, 12:312]).max(axis=2) == 0
+    assert untouched.mean() > 0.6                   # most of the paper grain is original
+
+
+@pytest.mark.parametrize("box", [(250, 200, 130, 30), (240, 190, 150, 50), (200, 150, 230, 130)])
+def test_erasing_a_solid_patch_with_tight_or_loose_boxes(box):
+    img = np.zeros((300, 400, 3), np.uint8)
+    img[:] = (90, 140, 60)
+    img[200:230, 250:380] = 255
+    out = enhance.inpaint_regions(img, [box])
+    assert np.abs(out.astype(int) - (90, 140, 60)).max() < 12
+
+
+def test_erasing_works_on_gray_images():
+    gray = enhance.to_gray(_poster_with_credit())
+    out = enhance.inpaint_regions(gray, [(12, 363, 300, 30)])
+    assert out.ndim == 2 and out[368:392, 15:300].min() > 150

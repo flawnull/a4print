@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0
+
+- Web page: erase a date stamp or mark by dragging boxes on the image.
+- Smarter erasing (`--remove` and the web tool): only the marks inside a box are filled, so paper grain stays and nearby lines are not smeared in. Solid patches still get the whole box filled.
+
 ## 0.10.0
 
 - Photo sheets: `--per-page 2|4|6|8|9|12` lays several images on each page with dashed cutting guides; photos are turned 90 degrees when that crops less. Each image gets the full pipeline. One PDF for all sheets.

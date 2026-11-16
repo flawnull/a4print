@@ -30,6 +30,7 @@ from . import calibrate, cli, files, maxq, setup_ai, upscale
 from .pipeline import process_file
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+MAX_REMOVE_REGIONS = 20
 MAX_JOBS = 25  # older results are deleted, so a long session can't fill the disk
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
@@ -71,6 +72,8 @@ def build_argv(upload, out_dir, query):
     for key, flag in SWITCH_FLAGS.items():
         if query.get(key, [""])[0] in ("1", "true", "on"):
             argv.append(flag)
+    for region in query.get("remove", [])[:MAX_REMOVE_REGIONS]:   # boxes drawn on the page
+        argv += ["--remove", region.strip()]
     return argv
 
 
@@ -550,6 +553,13 @@ PAGE = r"""<!doctype html>
   .compare figcaption { display: flex; justify-content: space-between; gap: 8px; max-width: 600px;
                         margin: 6px auto 0; font-size: 13px; color: var(--muted); }
   .whole summary { font-size: 14px; }
+  .erase-help { font-size: 14px; color: var(--muted); margin: 8px 0; }
+  .erase-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0;
+                 touch-action: none; cursor: crosshair; user-select: none; }
+  .erase-stage img { max-width: 100%; max-height: 520px; border-radius: 6px; }
+  #erase-rects { position: absolute; inset: 0; }
+  #erase-rects div { position: absolute; border: 2px solid #ff00b4; background: rgba(255, 0, 180, .22); }
+  #erase-clear { margin-top: 8px; }
   .result img.sheet-preview { max-width: 420px; display: block; margin: 12px auto; box-shadow: 0 2px 12px rgba(0,0,0,.15); }
   .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   .downloads a.main { background: var(--accent); color: var(--accent-text); text-decoration: none;
@@ -606,6 +616,16 @@ PAGE = r"""<!doctype html>
       <small id="ai-note">Makes small images (like Pinterest downloads) print noticeably sharper.</small>
       <small id="max-note" hidden></small>
     </div>
+
+    <details id="erase-box">
+      <summary>Erase a date stamp or mark</summary>
+      <p class="erase-help" id="erase-help">Choose one image first.</p>
+      <div class="erase-stage" id="erase-stage" hidden>
+        <img id="erase-img" alt="The chosen image. Drag on it to mark areas to erase." draggable="false">
+        <div id="erase-rects"></div>
+      </div>
+      <button type="button" class="secondary" id="erase-clear" hidden>Clear boxes</button>
+    </details>
 
     <details>
       <summary>More options</summary>
@@ -778,11 +798,58 @@ $("poster-more").addEventListener("change", e => {
 document.querySelectorAll("input[name=poster]").forEach(r =>
   r.addEventListener("change", () => { $("poster-more").value = ""; }));
 
+// Erase tool: drag boxes on the chosen image. Boxes are kept in percent of
+// the image, which is what --remove takes.
+let eraseBoxes = [], eraseUrl = null;
+function drawEraseBoxes(extra) {
+  const layer = $("erase-rects"); layer.replaceChildren();
+  for (const b of extra ? eraseBoxes.concat([extra]) : eraseBoxes) {
+    const d = document.createElement("div");
+    d.style.left = b.x + "%"; d.style.top = b.y + "%"; d.style.width = b.w + "%"; d.style.height = b.h + "%";
+    layer.append(d);
+  }
+  $("erase-clear").hidden = !eraseBoxes.length;
+}
+function setupErase() {
+  eraseBoxes = []; drawEraseBoxes();
+  if (eraseUrl) { URL.revokeObjectURL(eraseUrl); eraseUrl = null; }
+  const one = chosen.length === 1;
+  $("erase-stage").hidden = !one;
+  $("erase-help").textContent = one ? "Drag a box over each thing to erase. It is filled in from its surroundings; "
+    + "use it for your own photos or images you may edit." : chosen.length ? "This works with one image at a time."
+    : "Choose one image first.";
+  if (one) { eraseUrl = URL.createObjectURL(chosen[0]); $("erase-img").src = eraseUrl; }
+}
+$("erase-img").addEventListener("error", () => {
+  $("erase-stage").hidden = true;
+  $("erase-help").textContent = "This browser can't show this file type, so boxes can't be drawn on it here.";
+});
+(() => {
+  const stage = $("erase-stage"); let start = null;
+  const at = e => {
+    const r = $("erase-img").getBoundingClientRect();
+    return {x: Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100)),
+            y: Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100))};
+  };
+  const box = (a, b) => ({x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y)});
+  stage.addEventListener("pointerdown", e => { e.preventDefault(); start = at(e); stage.setPointerCapture(e.pointerId); });
+  stage.addEventListener("pointermove", e => { if (start) drawEraseBoxes(box(start, at(e))); });
+  stage.addEventListener("pointerup", e => {
+    if (!start) return;
+    const b = box(start, at(e)); start = null;
+    if (b.w >= 0.5 && b.h >= 0.5 && eraseBoxes.length < 20) eraseBoxes.push(b);
+    drawEraseBoxes();
+  });
+  stage.addEventListener("pointercancel", () => { start = null; drawEraseBoxes(); });
+  $("erase-clear").addEventListener("click", () => { eraseBoxes = []; drawEraseBoxes(); });
+})();
+
 function choose(list) {
   chosen = Array.from(list).filter(f => f.size > 0);
   drop.querySelector("strong").textContent =
     chosen.length ? chosen.map(f => f.name).join(", ") : "Drop images here or click to choose";
   go.disabled = !chosen.length;
+  setupErase();
 }
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
@@ -882,6 +949,8 @@ go.addEventListener("click", async () => {
   const params = new URLSearchParams();
   for (const [key, value] of new FormData($("opts"))) if (value !== "") params.set(key, value);
   if ($("poster-more").value) params.set("poster", $("poster-more").value);
+  if (chosen.length === 1) for (const b of eraseBoxes)
+    params.append("remove", [b.x, b.y, b.w, b.h].map(v => v.toFixed(2) + "%").join(","));
   if (params.get("poster") === "sheet") {
     await makeSheets(params);
     go.disabled = false;
