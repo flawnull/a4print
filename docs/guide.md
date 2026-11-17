@@ -44,7 +44,9 @@ pip install -e ".[dev,heic]"
 a4print-setup-ai
 ```
 
-This downloads the official build for your system (about 50 MB) from the Real-ESRGAN releases, checks its checksum, puts it in `~/.a4print/realesrgan`, and runs a quick test. The web page has a **Set up AI sharpening** button that does the same.
+This downloads the official build for your system (about 50 MB) from the Real-ESRGAN releases, checks its checksum, puts it in `~/.a4print/realesrgan`, and runs a quick test. It also sets up the photo model, RealESRNet x4plus (a 67 MB download from the same releases). The web page has a **Set up AI sharpening** button that does the same.
+
+a4print picks the model per image. Photos get RealESRNet, which sharpens what the photo has without inventing faces or textures. Artwork and graphics get Real-ESRGAN x4plus, which draws the crispest edges and lettering. If you set up AI before version 0.14, run `a4print-setup-ai` once more to add the photo model; until then, photos are enlarged without AI.
 
 Speed depends on your hardware. With a graphics chip (any recent Mac, or a PC with a graphics card) it takes seconds per image. Without one it falls back to the CPU and can take minutes.
 
@@ -52,10 +54,7 @@ If you already have Real-ESRGAN somewhere else, a4print also finds it on your `P
 
 ### Optional: maximum quality
 
-`--max-quality` uses newer AI models run with [PyTorch](https://pytorch.org), picked per image:
-
-- **Photos**: [4xNomosWebPhoto_esrgan](https://github.com/Phhofm/models) by Philip Hofmann, trained on web photos with JPEG and WebP compression, blur and noise.
-- **Artwork and graphics**: Real-ESRGAN x4plus, which still draws the crispest edges and lettering.
+`--max-quality` runs the same two models with [PyTorch](https://pytorch.org) in full precision. Use it when `--ai` doesn't run on your computer (it needs a Vulkan graphics driver), or on a Mac or a PC with an NVIDIA card where PyTorch runs on the graphics chip.
 
 Set it up once:
 
@@ -67,9 +66,9 @@ pipx inject a4print torch spandrel
 a4print-setup-ai --max
 ```
 
-The first command adds PyTorch (about 100 MB on a Mac, more on Linux and Windows). The second downloads the two models (about 100 MB), checks their checksums, and runs a quick test. Without pipx, use `pip install torch spandrel` instead of the first command. On a Mac with Apple Silicon, PyTorch runs on the graphics chip.
+The first command adds PyTorch (about 100 MB on a Mac, more on Linux and Windows). The second downloads the two models (about 130 MB), checks their checksums, and runs a quick test. Without pipx, use `pip install torch spandrel` instead of the first command. On a Mac with Apple Silicon, PyTorch runs on the graphics chip.
 
-Why these two models: see the [model comparison](how-it-works.md#maximum-quality-models).
+Why these two models: see [choosing the models](how-it-works.md#choosing-the-models).
 
 ## In your browser
 
@@ -207,9 +206,11 @@ holiday.jpg
 | `--sharpen-radius PX` | `2.0` | Unsharp mask radius in output pixels |
 | `--shadows S` | `0.03` | Shadow lift, 0 to 0.2 (0.03 lifts black by about 8 levels) |
 | `--midtones S` | `0.05` | Midtone lift. `0` turns it off |
-| `--no-enhance` | off | Skip denoise, sharpening and tone lift |
-| `--ai` | off | Upscale with Real-ESRGAN instead of Lanczos |
-| `--ai-model NAME` | `realesrgan-x4plus` | Real-ESRGAN model name |
+| `--no-grain` | off | No print grain on photos enlarged more than 2x. See [print grain](how-it-works.md#ai-upscaling) |
+| `--no-enhance` | off | Skip denoise, sharpening, grain and tone lift |
+| `--ai` | off | Upscale with AI: RealESRNet for photos, Real-ESRGAN for artwork |
+| `--ai-model NAME` | per image | Use this Real-ESRGAN (ncnn) model for every image |
+| `--max-quality` | off | The same AI models through PyTorch, in full precision |
 | `--ai-strength S` | `1` | Mix of the AI result with a plain resize. See [AI upscaling](how-it-works.md#ai-upscaling) |
 | `--min-dpi N` | `150` | Warn below this effective DPI |
 | `--no-pdf`, `--no-preview` | off | Skip those outputs |

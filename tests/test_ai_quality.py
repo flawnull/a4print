@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from a4print import enhance, upscale
+from a4print import enhance, setup_ai, upscale
 from a4print.pipeline import Options, detail_pair, prepare
 
 from .conftest import gradient, with_noise
@@ -62,6 +62,19 @@ def fake_ai(tmp_path, monkeypatch):
     fake.write_text(FAKE.format(python=sys.executable))
     fake.chmod(0o755)
     monkeypatch.setenv(upscale.ENV_VAR, str(fake))
+    models = setup_ai.models_dir()
+    models.mkdir(parents=True, exist_ok=True)
+    for suffix in (".param", ".bin"):
+        (models / (setup_ai.PHOTO_MODEL + suffix)).write_text("stand-in")
+    calls = []
+    real_run = upscale.subprocess.run
+
+    def run(cmd, **kw):
+        result = real_run(cmd, **kw)
+        calls.append(cmd)
+        return result
+    monkeypatch.setattr(upscale.subprocess, "run", run)
+    return calls
 
 
 def test_artwork_gets_full_strength_and_text_protection(fake_ai):
@@ -73,7 +86,29 @@ def test_artwork_gets_full_strength_and_text_protection(fake_ai):
 def test_photos_get_full_strength(fake_ai):
     _, report = prepare(with_noise(gradient(300, 200), 6), Options(ai=True, enhance=False))
     assert report.content == "photo"
-    assert "100%, photo" in report.resize_method
+    assert report.resize_method.startswith("RealESRNet (100%, photo")
+
+
+def model_args(cmd):
+    args = dict(zip(cmd[1::2], cmd[2::2], strict=False))
+    return args["-n"], args.get("-m")
+
+
+def test_photos_use_the_non_gan_model_and_artwork_the_gan(fake_ai):
+    prepare(with_noise(gradient(300, 200), 6), Options(ai=True, enhance=False))
+    assert model_args(fake_ai[-1]) == ("realesrnet-x4plus", str(setup_ai.models_dir()))
+    prepare(flat_graphic(), Options(ai=True, enhance=False))
+    assert model_args(fake_ai[-1])[0] == "realesrgan-x4plus"
+
+
+def test_photo_without_the_photo_model_gets_no_gan(fake_ai):
+    for suffix in (".param", ".bin"):
+        (setup_ai.models_dir() / (setup_ai.PHOTO_MODEL + suffix)).unlink()
+    _, report = prepare(with_noise(gradient(300, 200), 6), Options(ai=True, enhance=False))
+    assert report.resize_method == "Lanczos" and not fake_ai
+    assert any("photo model" in w for w in report.warnings)
+    _, report = prepare(flat_graphic(), Options(ai=True, enhance=False))
+    assert report.resize_method.startswith("Real-ESRGAN")
 
 
 def test_protected_area_is_the_plain_enlargement(fake_ai):
@@ -167,3 +202,10 @@ def test_detail_centers_on_a_face():
     x, y, w, h = face
     assert 150 < x + w / 2 < 300 and 60 < y + h / 2 < 200
     assert enhance.find_face(flat_graphic()) is None
+
+
+def test_photo_model_does_its_own_cleanup(fake_ai):
+    _, report = prepare(with_noise(gradient(300, 200), 6), Options(ai=True))
+    assert report.cleanup == "left to the AI photo model"
+    _, report = prepare(with_noise(gradient(300, 200), 6), Options())
+    assert report.cleanup and report.cleanup != "left to the AI photo model"

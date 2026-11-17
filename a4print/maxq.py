@@ -1,21 +1,23 @@
-"""Maximum quality mode: newer upscaling models run with PyTorch.
+"""Maximum quality mode: the AI models run with PyTorch.
 
     pipx inject a4print 'torch>=2.6' spandrel   # once, with pipx
-    a4print-setup-ai --max                 # downloads the two models (~100 MB)
+    a4print-setup-ai --max                 # downloads the two models (~130 MB)
     a4print photo.jpg --max-quality
 
-The model is picked per image, from a side-by-side test on photos and
-graphics after a4print's merge (edge sharpness of the strongest edges):
+These are the same networks --ai uses, in full precision (--ai runs them in
+half precision through ncnn/Vulkan). PyTorch also runs where Vulkan doesn't,
+and on Apple Silicon and NVIDIA graphics.
 
-- Photos: 4xNomosWebPhoto_esrgan by Philip Hofmann (CC BY 4.0), trained on
-  web photos with JPEG/WebP compression, blur and noise. On a cat photo it
-  gave 27% crisper fur than Real-ESRGAN, and more natural skin on a face.
-  https://github.com/Phhofm/models
+- Photos: RealESRNet x4plus by Xintao Wang et al. (BSD-3-Clause), the
+  Real-ESRGAN network trained without the GAN loss. In a ground-truth test
+  on nine photos (crowds, faces, a cat, a street) it was the most faithful
+  of the models tried, on faces too; the GAN models drew waxy or cartoon
+  faces. https://github.com/xinntao/Real-ESRGAN
 - Artwork and graphics: Real-ESRGAN x4plus by Xintao Wang et al.
-  (BSD-3-Clause), still the crispest on hard edges and lettering.
-  https://github.com/xinntao/Real-ESRGAN
+  (BSD-3-Clause), the crispest on hard edges and lettering.
 
-Also tried and left out: SwinIR-L, DAT2, ATD and RealPLKSR were softer.
+Also tried and left out: 4xNomosWebPhoto_esrgan (the photo model before
+0.14; it invented the most detail), SwinIR-L, DAT2, ATD and RealPLKSR.
 
 Models are loaded with spandrel (MIT), which only unpickles model weights,
 and each file's SHA-256 is checked after download.
@@ -42,10 +44,10 @@ class Model:
 
 MODELS = {
     "photo": Model(
-        "4xNomosWebPhoto_esrgan.safetensors",
-        "https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_esrgan/4xNomosWebPhoto_esrgan.safetensors",
-        "2f49c3065db8aaeb64adb08e8879001fe2f1460df5655499707efedad8a3d556", 33_467_822,
-        "4xNomosWebPhoto_esrgan by Philip Hofmann, CC BY 4.0",
+        "RealESRNet_x4plus.pth",
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth",
+        "a820b9bde89a874d7599d545567308ce6c128fc8754a53208eda016d40aa81df", 67_040_989,
+        "RealESRNet x4plus by Xintao Wang et al., BSD-3-Clause",
     ),
     "artwork": Model(
         "RealESRGAN_x4plus.pth",

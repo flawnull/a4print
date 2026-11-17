@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+- Photos are enlarged with RealESRNet x4plus, with `--ai` and `--max-quality`. The GAN models used before drew mannequin or cartoon faces in crowds and a fish-scale mesh on flat areas. In a ground-truth test on nine photos, RealESRNet was the most faithful on every measure: face SSIM at 3x went from 0.77 to 0.83, and the error in fine detail dropped below that of a plain enlargement. Artwork keeps Real-ESRGAN x4plus.
+- `a4print-setup-ai` also sets up the photo model: it downloads the official weights, checks them, and converts them to the ncnn format on your computer, verified against a pinned checksum. Run it once more after updating. Until then, photos are enlarged without AI instead of with a GAN.
+- Photos going through the AI skip a4print's own noise and JPEG cleanup, since the model does it and cleaning twice removed real texture.
+- Fine print grain on photos enlarged more than 2x, so big enlargements don't look painted. `--no-grain` turns it off.
+- `--max-quality` now runs the same models as `--ai`, through PyTorch in full precision; the 4xNomosWebPhoto_esrgan model is no longer used.
+- Clearer wording on the web page after AI sharpening.
+
 ## 0.13.0
 
 - The crop preview works for posters: the frame has the poster's shape for the chosen paper, grid and orientation, with lines where the sheets meet. `--crop-at` applies to posters too.

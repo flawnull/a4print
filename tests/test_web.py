@@ -135,12 +135,27 @@ def test_setup_ai_from_the_page(tmp_path, monkeypatch, portrait):
 
     calls = []
     monkeypatch.setattr(setup_ai, "install", lambda *a, **k: calls.append("install"))
+    monkeypatch.setattr(setup_ai, "install_photo_model", lambda *a, **k: calls.append("photo"))
     monkeypatch.setattr(setup_ai, "self_test", lambda: "")
     monkeypatch.setattr(setup_ai, "supported", lambda: True)
     app = web.App(tmp_path)
     app.ai_available = False
     status, payload = app.setup_ai()
-    assert status == 200 and payload["ai"] is True and calls == ["install"]
+    assert status == 200 and payload["ai"] is True and calls == ["install", "photo"]
+
+
+def test_setup_ai_adds_the_photo_model_to_an_older_setup(tmp_path, monkeypatch):
+    from a4print import setup_ai
+
+    calls = []
+    monkeypatch.setattr(setup_ai, "install", lambda *a, **k: calls.append("install"))
+    monkeypatch.setattr(setup_ai, "install_photo_model", lambda *a, **k: calls.append("photo"))
+    monkeypatch.setattr(setup_ai, "self_test", lambda: "")
+    app = web.App(tmp_path)
+    app.ai_available = True
+    assert app.status()["ai_photo"] is False
+    status, _ = app.setup_ai()
+    assert status == 200 and calls == ["photo"]
 
 
 def test_setup_ai_reports_failures(tmp_path, monkeypatch):

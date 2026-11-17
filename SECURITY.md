@@ -26,7 +26,7 @@ Please report security problems privately, through GitHub's **Report a vulnerabi
 
 **Downloads are pinned.** `a4print-setup-ai` downloads Real-ESRGAN and the AI models only from their authors' GitHub releases, over HTTPS, and checks each file against a SHA-256 written into a4print's code. A file that doesn't match is deleted and not used. Model checksums are checked again each time a model is loaded.
 
-**Model files can't run code.** Models are loaded with spandrel, which only unpickles model weights, and the photo model is in the `.safetensors` format, which holds data only. The `max` extra requires PyTorch 2.6 or newer (CVE-2025-32434).
+**Model files can't run code.** Models are loaded with spandrel, which only unpickles model weights. When `a4print-setup-ai` converts the photo model for `--ai`, it reads the PyTorch file with its own restricted unpickler, which accepts only plain dictionaries and tensors and refuses anything else, and checks that every tensor stays inside its data. It runs only after the download's checksum matched, and the converted file is checked against a second pinned checksum. The `max` extra requires PyTorch 2.6 or newer (CVE-2025-32434).
 
 **Programs are started without a shell.** Real-ESRGAN is run with an argument list, so file names can't inject commands.
 

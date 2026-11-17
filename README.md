@@ -43,7 +43,7 @@ New to pipx, or want AI upscaling? See the [install guide](https://github.com/fl
 
 - **A4, US Letter or A3.** Pick the paper your printer uses; the web page defaults to Letter in the US and Canada, A4 elsewhere.
 - **Smart fit.** Designed posters keep their frames and credit lines; the page is extended in the poster's own paper color and grain. Photos are cropped only when little is lost, never through a face, and you can drag the crop yourself on the web page.
-- **AI upscaling, kept honest.** Real-ESRGAN, or newer web-photo models with `--max-quality`. Tones come from the original and erased skin texture is put back, so prints look sharper, not retouched. Tiny text the AI would garble is left as is.
+- **AI upscaling, kept honest.** Photos get RealESRNet, a model that sharpens what the photo has without drawing new faces or textures; artwork gets Real-ESRGAN's crisp edges. Both were chosen in a test against the original photos. Tones come from the original, tiny text the AI would garble is left as is, and strong enlargements get fine print grain so they don't look painted.
 - **Photo sheets.** Put 2 to 12 pictures on one page with cutting guides; photos are turned when that crops less.
 - **Posters on a home printer.** Split one image over 2 to 36 A4 sheets, with margins, overlap strips, alignment guides and labeled sheets.
 - **Printer calibration.** A one-page test sheet measures how dark your printer prints, and every later print is tuned to it.
@@ -79,7 +79,7 @@ Upscaling AIs have two habits that hurt a print: they shift tones, and they wipe
 | Skin texture kept | 49% | 100% |
 | Edge sharpness | 1.41x plain | 1.40x plain |
 
-Six AI models were compared before choosing the ones a4print uses, and every default here was measured the same way. The full pipeline, the model comparison and the engineering notes are in [how it works](https://github.com/flawnull/a4print/blob/main/docs/how-it-works.md).
+The models were chosen with a ground-truth test: nine photos, including crowds with small faces, shrunk the way Pinterest shrinks images and enlarged back. GAN models, which draw the crispest detail, scored worst on faces; the model a4print uses for photos scored best on every measure. The full pipeline, the model comparison and the engineering notes are in [how it works](https://github.com/flawnull/a4print/blob/main/docs/how-it-works.md).
 
 ## Built with
 
@@ -104,7 +104,7 @@ a4print/
 
 ## Quality and security
 
-About 150 tests run on Linux, macOS and Windows with Python 3.10 and 3.13, using only generated and public-domain images. AI programs and models are downloaded from their authors' releases and checked against pinned SHA-256 checksums; the web page refuses requests from other websites. Details in [SECURITY.md](https://github.com/flawnull/a4print/blob/main/SECURITY.md).
+About 220 tests run on Linux, macOS and Windows with Python 3.10 and 3.13, using only generated and public-domain images. AI programs and models are downloaded from their authors' releases and checked against pinned SHA-256 checksums; the web page refuses requests from other websites. Details in [SECURITY.md](https://github.com/flawnull/a4print/blob/main/SECURITY.md).
 
 Print only images you have the right to use. `--remove`, which erases date stamps and marks, is meant for your own photos or images you're allowed to edit.
 

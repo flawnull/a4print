@@ -104,14 +104,19 @@ def build_parser():
                    help=f"shadow lift, 0-0.2 (default: %(default)s{note})")
     g.add_argument("--midtones", type=float, default=saved.get("midtones", 0.05), metavar="S",
                    help=f"midtone lift, 0 disables (default: %(default)s{note})")
-    g.add_argument("--no-enhance", action="store_true", help="skip denoise, sharpening and tone lift")
+    g.add_argument("--no-grain", action="store_true",
+                   help="no print grain on photos enlarged more than 2x (grain keeps them from looking painted)")
+    g.add_argument("--no-enhance", action="store_true", help="skip denoise, sharpening, grain and tone lift")
 
     g = p.add_argument_group("upscaling")
-    g.add_argument("--ai", action="store_true", help="upscale with Real-ESRGAN (realesrgan-ncnn-vulkan)")
+    g.add_argument("--ai", action="store_true",
+                   help="AI upscaling (realesrgan-ncnn-vulkan): RealESRNet for photos, Real-ESRGAN for artwork")
     g.add_argument("--max-quality", action="store_true",
-                   help="AI upscaling with newer models via PyTorch: a web-photo model for photos, "
-                        "Real-ESRGAN for artwork (setup: a4print-setup-ai --max)")
-    g.add_argument("--ai-model", default="realesrgan-x4plus", help="Real-ESRGAN model (default: %(default)s)")
+                   help="the same AI models run with PyTorch in full precision; works without a "
+                        "Vulkan graphics driver (setup: a4print-setup-ai --max)")
+    g.add_argument("--ai-model", default=None,
+                   help="Real-ESRGAN model name (default: realesrnet-x4plus for photos, "
+                        "realesrgan-x4plus for artwork)")
     g.add_argument("--ai-strength", type=float, default=None, metavar="S",
                    help="0-1 mix of the AI result with a plain resize (default: 1.0; tones and "
                         "skin texture are kept from the original either way)")
@@ -132,7 +137,7 @@ def options_from_args(args):
         trim_border=args.trim_border, trim_tolerance=args.trim_tolerance,
         remove=args.remove, enhance=not args.no_enhance, denoise=args.denoise,
         sharpen=args.sharpen, sharpen_radius=args.sharpen_radius,
-        shadows=args.shadows, midtones=args.midtones,
+        shadows=args.shadows, midtones=args.midtones, grain=not args.no_grain,
         ai=args.ai, ai_model=args.ai_model, ai_strength=args.ai_strength, max_quality=args.max_quality,
         poster=args.poster, overlap=args.overlap, min_dpi=args.min_dpi,
         pdf=not args.no_pdf, preview=not args.no_preview,
@@ -164,6 +169,8 @@ def describe(r, opts):
         lines.append(("crop", r.crop_note))
     if opts.enhance:
         lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
+        if r.grain:
+            lines.append(("grain", "fine print grain added, so the enlargement doesn't look painted (--no-grain)"))
     lines += [("warning", w) for w in r.warnings]
     lines += [("tip", t) for t in r.tips]
     return lines
@@ -204,7 +211,7 @@ def make_sheets(images, args, opts):
         notes = [f"sheet {sheet}", f"{r.effective_dpi:.0f} DPI, {r.quality}"]
         if r.orientation:
             notes.append(r.orientation)
-        if r.content and "skipped" not in r.resize_method:
+        if r.resize_method.endswith("+ Lanczos"):
             notes.append("AI sharpened")
         print(f"{name}\n  {'; '.join(notes)}")
         for warning in r.warnings:
@@ -293,7 +300,7 @@ def main(argv=None):
     for path in images:
         print(f"{path.name}", flush=True)
         if opts.ai or opts.max_quality:
-            engine = "maximum quality AI" if opts.max_quality else "Real-ESRGAN"
+            engine = "AI (PyTorch)" if opts.max_quality else "AI"
             print(f"  upscaling   {engine} running (seconds on a GPU, minutes on CPU)", flush=True)
         try:
             r, pdf_pages = process_file(path, args.output_dir, opts, names[path])

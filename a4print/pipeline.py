@@ -37,9 +37,10 @@ class Options:
     shadows: float = 0.03
     midtones: float = 0.05
     ai: bool = False
-    ai_model: str = "realesrgan-x4plus"
+    ai_model: str = None           # Real-ESRGAN (ncnn) model; None = picked per image
     ai_strength: float = None      # mix of AI result vs plain resize; None = 1.0
     max_quality: bool = False      # newer PyTorch models (maxq); implies AI
+    grain: bool = True             # fine print grain on strongly enlarged photos
     min_dpi: float = 150
     paper: str = "a4"              # a4 | letter | a3
     poster: tuple = None           # (columns, rows) of sheets, or None for one page
@@ -61,6 +62,7 @@ class Report:
     fill_reason: str = ""
     crop_note: str = ""            # set when the crop was moved for faces
     cleanup: str = ""              # why denoise ran, "" if it didn't
+    grain: bool = False            # print grain was added
     resize_method: str = ""
     content: str = ""              # "artwork" or "photo", when AI ran
     detail: tuple = None           # (plain enlargement, result) of one area, for the preview
@@ -164,11 +166,26 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     wants_ai = opts.ai or opts.max_quality
     use_ai = wants_ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
     if scale >= 1:
-        if opts.enhance:
-            arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
-        strength, label, protect = opts.ai_strength, "", None
-        if use_ai:
+        strength, label, protect, model = opts.ai_strength, "", None, opts.ai_model
+        if use_ai or (scale > 2 and opts.enhance and opts.grain):
             report.content = enhance.content_type(arr)
+        if use_ai and not opts.max_quality and model is None:
+            model = upscale.ai_model_for(report.content)
+            if model is None:
+                # GAN models invent faces and textures in photos; without
+                # the photo model, a plain enlargement is the honest result.
+                use_ai = False
+                report.warnings.append("AI skipped for this photo: the photo model isn't set up yet; "
+                                       "run 'a4print-setup-ai' once to add it")
+        if opts.enhance:
+            if use_ai and report.content == "photo":
+                # The photo model removes noise and JPEG artifacts itself;
+                # cleaning first only takes away real texture (measured:
+                # 0.67 vs 0.72 SSIM against the original at 5x).
+                report.cleanup = "left to the AI photo model"
+            else:
+                arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality)
+        if use_ai:
             if strength is None:
                 # Full strength for everything: merge_ai keeps the original's
                 # tones and puts back texture (skin) the AI wiped out.
@@ -179,13 +196,19 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
                 if protect.any():
                     label = ", ".join(filter(None, [label, "small text kept as is"]))
         arr, report.resize_method = upscale.resize(
-            arr, out_size, use_ai, opts.ai_model, 1.0 if strength is None else strength, label, protect,
+            arr, out_size, use_ai, model, 1.0 if strength is None else strength, label, protect,
             max_quality=report.content if (use_ai and opts.max_quality) else None)
     else:
         arr, report.resize_method = upscale.resize(arr, out_size)
         if opts.enhance:
             arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality if scale >= 0.5 else None)
-    if wants_ai and not use_ai:
+    if scale > 2 and opts.enhance and opts.grain:
+        # Strong enlargements of photos print smooth and painted-looking;
+        # fine grain reads as photographic texture (see enhance.grain_amount).
+        if report.content == "photo":
+            arr = enhance.add_grain(arr, enhance.grain_amount(scale), dpi)
+            report.grain = True
+    if wants_ai and not use_ai and report.effective_dpi >= AI_USEFUL_BELOW_DPI:
         report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 
     # Fill the rest of the area.

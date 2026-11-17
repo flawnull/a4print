@@ -47,7 +47,7 @@ def test_pipeline_picks_model_by_content(fake_models, monkeypatch):
     real = maxq.upscale_x4
     monkeypatch.setattr(maxq, "upscale_x4", lambda arr, kind="photo", **k: used.append(kind) or real(arr, kind))
     _, report = prepare(with_noise(gradient(300, 200), 6), Options(max_quality=True, enhance=False))
-    assert used[-1] == "photo" and "WebPhoto ESRGAN" in report.resize_method
+    assert used[-1] == "photo" and "maximum quality: RealESRNet" in report.resize_method
 
     from .test_ai_quality import flat_graphic
     _, report = prepare(flat_graphic(), Options(max_quality=True, enhance=False))

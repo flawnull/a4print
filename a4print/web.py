@@ -41,7 +41,7 @@ VALUE_FLAGS = {
     "poster": "--poster", "margin": "--margin", "overlap": "--overlap",
     "ai_strength": "--ai-strength",
 }
-SWITCH_FLAGS = {"trim_border": "--trim-border", "no_enhance": "--no-enhance", "ai": "--ai",
+SWITCH_FLAGS = {"trim_border": "--trim-border", "no_enhance": "--no-enhance", "no_grain": "--no-grain", "ai": "--ai",
                 "max_quality": "--max-quality"}
 
 CONTENT_TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -108,7 +108,8 @@ class App:
             return False
 
     def status(self):
-        return {"ai": self.ai_available, "ai_installable": setup_ai.supported(),
+        return {"ai": self.ai_available, "ai_photo": setup_ai.photo_model_installed(),
+                "ai_installable": setup_ai.supported(),
                 "max": maxq.available(), "max_libs": maxq.libraries_available(),
                 "print_settings": calibrate.load_settings()}
 
@@ -135,11 +136,14 @@ class App:
         return HTTPStatus.OK, self.status()
 
     def setup_ai(self):
-        """Install Real-ESRGAN from the page (one-time ~50 MB download)."""
+        """Install Real-ESRGAN and the photo model from the page (one-time
+        ~120 MB download)."""
         with self.lock:
-            if not self.ai_available:
+            if not self.ai_available or not setup_ai.photo_model_installed():
                 try:
-                    setup_ai.install()
+                    if not self.ai_available:
+                        setup_ai.install()
+                    setup_ai.install_photo_model()
                 except setup_ai.SetupError as exc:
                     return HTTPStatus.BAD_GATEWAY, {**self.status(), "error": str(exc)}
                 problem = setup_ai.self_test()
@@ -267,11 +271,11 @@ class App:
             "quality": report.quality.split(":")[0].split(",")[0],
             "dpi": round(report.effective_dpi),
             "low": report.effective_dpi < opts.min_dpi,
-            "ai_used": bool(report.content) and "skipped" not in report.resize_method,
+            "ai_used": report.resize_method.endswith("+ Lanczos"),
             "ai_note": (("maximum quality, " if opts.max_quality else "")
                         + ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
                         + ("; small text kept as is" if "small text" in report.resize_method else ""))
-                       if report.content and "skipped" not in report.resize_method else "",
+                       if report.resize_method.endswith("+ Lanczos") else "",
             "fill": ("fills the " + ("poster" if report.poster else "page") + " with the part you framed"
                      if opts.crop_at is not None and report.fill == "crop"
                      else report.fill_reason or report.fill),
@@ -696,6 +700,7 @@ PAGE = r"""<!doctype html>
         </label>
         <label class="check"><input type="checkbox" name="trim_border"> Cut off a plain border</label>
         <label class="check"><input type="checkbox" name="no_enhance"> Don't clean up or adjust tones</label>
+        <label class="check"><input type="checkbox" name="no_grain"> No print grain on small photos</label>
       </div>
       <div class="calib">
         <b>Printer calibration</b> (optional, once per printer): prints come out darker than the
@@ -738,16 +743,17 @@ const VERDICTS = {
 function showAI(status) {
   $("ai-on").hidden = !status.ai;
   // With maximum quality set up, the basic AI setup isn't needed.
-  $("ai-setup").hidden = status.ai || !status.ai_installable || status.max;
+  $("ai-setup").hidden = (status.ai && status.ai_photo) || !status.ai_installable || status.max;
+  $("ai-setup").textContent = status.ai ? "Add the AI photo model" : "Set up AI sharpening";
   $("ai-box").hidden = !status.ai && !status.ai_installable && !status.max_libs;
   $("max-on").hidden = !status.max;
   $("max-setup").hidden = status.max || !status.max_libs;
   const maxNote = $("max-note");
   maxNote.hidden = false;
   maxNote.textContent = status.max
-    ? "Maximum quality uses newer AI models: one trained on web photos for photos, Real-ESRGAN for artwork. Slower without a graphics chip."
-    : status.max_libs ? "Maximum quality: a one-time 100 MB download of two newer AI models."
-    : "Maximum quality (newer AI models) needs PyTorch. To add it, run: pipx inject a4print torch spandrel";
+    ? "Maximum quality runs the AI models in full precision with PyTorch, and works without a Vulkan graphics driver."
+    : status.max_libs ? "Maximum quality: a one-time 130 MB download of the two AI models for PyTorch."
+    : "Maximum quality runs the AI with PyTorch. To add it, run: pipx inject a4print torch spandrel";
   if (status.ai) $("ai-note").textContent =
     "Makes small images print sharper. Used only when an image needs it; the preview shows a detail at print size.";
 }
@@ -801,7 +807,7 @@ fetch("/status").then(r => r.json()).then(s => {
 
 $("max-setup").addEventListener("click", async () => {
   const btn = $("max-setup");
-  btn.disabled = true; btn.textContent = "Downloading (about 100 MB)...";
+  btn.disabled = true; btn.textContent = "Downloading (about 130 MB)...";
   try {
     const r = await fetch("/setup-max", {method: "POST", headers: {"X-A4print": "1"}});
     const s = await r.json();
@@ -816,7 +822,7 @@ $("max-setup").addEventListener("click", async () => {
 
 $("ai-setup").addEventListener("click", async () => {
   const btn = $("ai-setup");
-  btn.disabled = true; btn.textContent = "Downloading (about 50 MB)...";
+  btn.disabled = true; btn.textContent = $("ai-on").hidden ? "Downloading (about 120 MB)..." : "Downloading (about 70 MB)...";
   try {
     const r = await fetch("/setup-ai", {method: "POST", headers: {"X-A4print": "1"}});
     const s = await r.json();
@@ -1019,10 +1025,11 @@ function verdict(summary, aiChecked) {
   const box = el("div", {class: "verdict"});
   if (summary.ai_used && summary.dpi < 240) {
     // Separate what the file had from what the print gets.
+    const small = summary.dpi < 150 ? "small" : "a little small";
     box.append(el("b", {class: "ok"}, "Sharpened with AI"),
-      document.createTextNode(". The original is " + label.toLowerCase() + " resolution (" + summary.dpi +
-        " DPI on this size); edges, lettering and faces now print crisp, and the finest detail is partly " +
-        "drawn by the AI. Compare below."));
+      document.createTextNode(". The original is " + small + " for this size (" + summary.dpi +
+        " DPI). Edges print cleaner than a plain enlargement, but detail the original doesn't have " +
+        "can't be brought back. Compare below."));
     return box;
   }
   const b = el("b", {class: cls}, "Print quality: " + label);

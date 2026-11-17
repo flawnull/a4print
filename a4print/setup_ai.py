@@ -7,12 +7,22 @@ releases (about 50 MB), checks its SHA-256 checksum, and unpacks it into
 ~/.a4print/realesrgan (or $A4PRINT_HOME/realesrgan). a4print finds it
 there automatically. Real-ESRGAN is BSD-3-Clause licensed, by Xintao Wang
 and contributors: https://github.com/xinntao/Real-ESRGAN
+
+It also sets up the photo model, RealESRNet x4plus (another 67 MB). That
+network is Real-ESRGAN x4plus trained without the GAN loss: it doesn't
+invent detail, so faces and textures in photos stay true to the original.
+The Real-ESRGAN releases ship its PyTorch weights only, so they are
+downloaded, checked, and written into the ncnn layout of realesrgan-x4plus,
+which has exactly the same network. The result is checked against a second
+pinned checksum, so every computer ends up with the same file.
 """
 
 import hashlib
 import os
+import pickle  # nosec B403: only a restricted unpickler is used, see _read_pth
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -20,6 +30,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+
+import numpy as np
 
 RELEASE = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/"
 
@@ -32,6 +44,14 @@ BUILDS = {
     "linux": ("realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
               "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96", 46_931_474),
 }
+
+# The photo model: official PyTorch weights, and the ncnn file made from them.
+PHOTO_MODEL = "realesrnet-x4plus"
+PHOTO_WEIGHTS = ("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth",
+                 "a820b9bde89a874d7599d545567308ce6c128fc8754a53208eda016d40aa81df", 67_040_989)
+PHOTO_BIN_SHA256 = "98d7e2a27aaabc31e6bd6fc82ce122c77c5b4e1f065c998df8d881a6e8e4b369"
+GRAPH = "realesrgan-x4plus.param"   # same network, so the same ncnn graph
+GRAPH_SHA256 = "35330ececcea33b6c397a72548e788d5d53becee4734c50b7fada36e89f10a86"
 
 # Demo files in the zips that a4print doesn't need.
 SKIP_SUFFIXES = (".jpg", ".png", ".mp4", ".md")
@@ -53,6 +73,17 @@ def installed_binary():
     """Path of an a4print-installed Real-ESRGAN, or None."""
     path = install_dir() / binary_name()
     return path if path.is_file() else None
+
+
+def models_dir():
+    """The installed ncnn models (the folder name must contain "models" for
+    realesrgan-ncnn-vulkan to accept it)."""
+    return install_dir() / "models"
+
+
+def photo_model_installed():
+    d = models_dir()
+    return (d / f"{PHOTO_MODEL}.param").is_file() and (d / f"{PHOTO_MODEL}.bin").is_file()
 
 
 def supported():
@@ -124,15 +155,123 @@ def install(progress=None, url_base=RELEASE):
     return binary
 
 
+class _WeightsUnpickler(pickle.Unpickler):
+    """Reads a PyTorch checkpoint without PyTorch, and without running any
+    code from the file: only plain containers and tensors are allowed."""
+
+    def __init__(self, fh, archive, prefix):
+        super().__init__(fh)
+        self.archive, self.prefix = archive, prefix
+
+    def find_class(self, module, name):
+        if (module, name) == ("collections", "OrderedDict"):
+            import collections
+            return collections.OrderedDict
+        if (module, name) == ("torch._utils", "_rebuild_tensor_v2"):
+            return _rebuild_tensor
+        if module == "torch" and name in _DTYPES:
+            return name
+        raise SetupError(f"unexpected content in the model file ({module}.{name})")
+
+    def persistent_load(self, pid):
+        kind, dtype, key, _location, _count = pid
+        if kind != "storage" or dtype not in _DTYPES:
+            raise SetupError("unexpected storage in the model file")
+        raw = self.archive.read(f"{self.prefix}/data/{key}")
+        return np.frombuffer(raw, _DTYPES[dtype])
+
+
+_DTYPES = {"FloatStorage": np.dtype("<f4"), "HalfStorage": np.dtype("<f2")}
+
+
+def _rebuild_tensor(storage, offset, size, stride, *_):
+    if not size:
+        return storage[offset:offset + 1].reshape(())
+    item = storage.itemsize
+    if (offset < 0 or any(n < 0 for n in size) or any(st < 0 for st in stride)
+            or offset + sum((n - 1) * st for n, st in zip(size, stride, strict=True)) >= len(storage)):
+        raise SetupError("damaged tensor in the model file")
+    return np.lib.stride_tricks.as_strided(storage[offset:], shape=tuple(size),
+                                           strides=tuple(s * item for s in stride)).copy()
+
+
+def _read_pth(path):
+    """name -> numpy array from a PyTorch .pth checkpoint (zip format)."""
+    with zipfile.ZipFile(path) as archive:
+        pkl = next(n for n in archive.namelist() if n.endswith("/data.pkl"))
+        with archive.open(pkl) as fh:
+            state = _WeightsUnpickler(fh, archive, pkl.rsplit("/", 1)[0]).load()
+    for key in ("params_ema", "params"):
+        if isinstance(state, dict) and key in state:
+            state = state[key]
+    return state
+
+
+def _write_ncnn_bin(state, graph, out):
+    """Write the weights in the order and format of the ncnn graph's
+    Convolution layers: fp16 weights after the fp16 tag, then fp32 bias."""
+    convs = [k[:-len(".weight")] for k in state if k.endswith(".weight")]
+    layers = [line.split() for line in graph.read_text().splitlines() if line.startswith("Convolution")]
+    if len(convs) != len(layers):
+        raise SetupError("the photo model doesn't fit the Real-ESRGAN graph")
+    with open(out, "wb") as fh:
+        for name, layer in zip(convs, layers, strict=True):
+            w, b = state[name + ".weight"], state[name + ".bias"]
+            params = dict(p.split("=", 1) for p in layer[6:] if "=" in p)
+            if int(params.get("0", -1)) != w.shape[0] or int(params.get("6", -1)) != w.size:
+                raise SetupError("the photo model doesn't fit the Real-ESRGAN graph")
+            fh.write(struct.pack("<I", 0x01306B47))
+            data = w.astype("<f2").tobytes()
+            fh.write(data + b"\0" * (-len(data) % 4))
+            fh.write(b.astype("<f4").tobytes())
+
+
+def _find_graph():
+    """The realesrgan-x4plus graph: from a4print's own install, or next to a
+    Real-ESRGAN found on PATH or through $A4PRINT_REALESRGAN."""
+    from . import upscale
+
+    candidates = [models_dir() / GRAPH]
+    try:
+        candidates.append(Path(upscale.find_realesrgan()).resolve().parent / "models" / GRAPH)
+    except upscale.UpscalerMissing:
+        pass
+    return next((c for c in candidates if c.is_file()), None)
+
+
+def install_photo_model(progress=None, url=None):
+    """Download RealESRNet x4plus and write it as an ncnn model next to the
+    Real-ESRGAN models. Needs Real-ESRGAN installed (for the graph)."""
+    graph = _find_graph()
+    if graph is None:
+        raise SetupError("install Real-ESRGAN first (a4print-setup-ai)")
+    models_dir().mkdir(parents=True, exist_ok=True)
+    src, sha256, _ = PHOTO_WEIGHTS
+    with tempfile.TemporaryDirectory() as tmp:
+        weights, made = Path(tmp) / "weights.pth", Path(tmp) / "model.bin"
+        try:
+            download(url or src, weights, sha256, progress)
+        except OSError as exc:
+            raise SetupError(f"couldn't download the photo model: {exc}") from None
+        _write_ncnn_bin(_read_pth(weights), graph, made)
+        digest = hashlib.sha256(made.read_bytes()).hexdigest()
+        if digest != PHOTO_BIN_SHA256:
+            raise SetupError("the converted photo model doesn't match its expected checksum")
+        if hashlib.sha256(graph.read_bytes()).hexdigest() != GRAPH_SHA256:
+            raise SetupError(f"{graph} isn't the Real-ESRGAN graph the photo model was made for")
+        shutil.copyfile(graph, models_dir() / f"{PHOTO_MODEL}.param")
+        shutil.move(str(made), str(models_dir() / f"{PHOTO_MODEL}.bin"))
+
+
 def self_test():
     """Upscale a tiny image to check Real-ESRGAN runs on this computer.
     Returns "" on success, otherwise the reason it failed."""
-    import numpy as np
-
     from . import upscale
 
     try:
         out = upscale.realesrgan_x4(np.full((16, 16, 3), 128, np.uint8))
+        if photo_model_installed():
+            out = upscale.realesrgan_x4(np.full((16, 16, 3), 128, np.uint8), PHOTO_MODEL)
     except Exception as exc:  # report any failure in plain words
         return str(exc).strip() or exc.__class__.__name__
     return "" if out.shape[:2] == (64, 64) else "unexpected output size"
@@ -206,6 +345,21 @@ def main(argv=None):
             print(f"\nerror: {exc}", file=sys.stderr)
             return 1
         print(f"\nInstalled in {install_dir()}")
+
+    if not photo_model_installed() or "--force" in args:
+        size = PHOTO_WEIGHTS[2]
+        print(f"Downloading the photo model, RealESRNet x4plus ({size / 1e6:.0f} MB)...")
+
+        def progress(done, total):
+            if total:
+                print(f"\r  {done * 100 // total:3d}%", end="", flush=True)
+
+        try:
+            install_photo_model(progress)
+        except SetupError as exc:
+            print(f"\nerror: {exc}", file=sys.stderr)
+            return 1
+        print()
 
     print("Checking that it runs...", flush=True)
     problem = self_test()

@@ -40,6 +40,18 @@ def lanczos(arr, size):
     return np.asarray(Image.fromarray(arr).resize(size, Image.LANCZOS))
 
 
+def ai_model_for(content):
+    """The ncnn model for "photo" or "artwork" content. Photos get
+    RealESRNet, which doesn't invent detail; GAN models drew waxy or
+    cartoon faces on small faces in a ground-truth test (docs/how-it-works.md).
+    Returns None for a photo when the photo model isn't set up."""
+    from . import setup_ai
+
+    if content == "artwork":
+        return "realesrgan-x4plus"
+    return setup_ai.PHOTO_MODEL if setup_ai.photo_model_installed() else None
+
+
 def realesrgan_x4(arr, model="realesrgan-x4plus"):
     """Upscale 4x with the Real-ESRGAN command-line tool."""
     binary = find_realesrgan()
@@ -48,7 +60,11 @@ def realesrgan_x4(arr, model="realesrgan-x4plus"):
         src, dst = Path(tmp) / "in.png", Path(tmp) / "out.png"
         Image.fromarray(rgb).save(src)
         cmd = [binary, "-i", str(src), "-o", str(dst), "-n", model, "-s", "4", "-f", "png"]
+        from . import setup_ai
+
         models_dir = Path(binary).resolve().parent / "models"
+        if not (models_dir / f"{model}.param").is_file() and (setup_ai.models_dir() / f"{model}.param").is_file():
+            models_dir = setup_ai.models_dir()   # the photo model, set up by a4print-setup-ai
         if models_dir.is_dir():
             cmd += ["-m", str(models_dir)]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -116,7 +132,7 @@ def _protect_areas(result, plain, protect, scale):
     result[oy0:oy1, ox0:ox1] = np.clip(a + keep_plain * (b - a) + 0.5, 0, 255).astype(np.uint8)
 
 
-def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, label="", protect=None,
+def resize(arr, size, ai=False, ai_model=None, ai_strength=0.7, label="", protect=None,
            max_quality=None):
     """Resize to `size` (w, h). With ai=True, enlargements go through Real-ESRGAN
     first and Lanczos takes the result to the exact size.
@@ -136,9 +152,11 @@ def resize(arr, size, ai=False, ai_model="realesrgan-x4plus", ai_strength=0.7, l
             from . import maxq
 
             x4 = maxq.upscale_x4(arr, max_quality)
-            name = "maximum quality: " + ("WebPhoto ESRGAN" if max_quality == "photo" else "Real-ESRGAN")
+            name = "maximum quality: " + ("RealESRNet" if max_quality == "photo" else "Real-ESRGAN")
         else:
-            x4, name = realesrgan_x4(arr, ai_model), "Real-ESRGAN"
+            ai_model = ai_model or "realesrgan-x4plus"
+            x4 = realesrgan_x4(arr, ai_model)
+            name = "RealESRNet" if ai_model.startswith("realesrnet") else "Real-ESRGAN"
         result = merge_ai(plain, lanczos(x4, size), size[0] / w, strength)
         if protect is not None and protect.any():
             _protect_areas(result, plain, protect, size[0] / w)

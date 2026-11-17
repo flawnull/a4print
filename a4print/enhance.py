@@ -329,6 +329,41 @@ def unsharp(channel, amount=0.5, radius=2.0, threshold=2, rows=1024):
     return out
 
 
+def grain_amount(scale):
+    """Print grain (standard deviation in levels) for a photo enlarged
+    `scale` times: none up to 2x, then rising to 3 levels at 5x.
+
+    A strong enlargement has no fine texture left: even the most faithful
+    AI result prints as smooth, painted-looking areas. Fine grain at print
+    scale reads as photographic texture instead. It is random, so it
+    doesn't draw any shapes. 3 levels looked natural on paper-sized
+    crops; 6 looked noisy."""
+    return float(np.clip((scale - 2.0), 0.0, 3.0))
+
+
+def add_grain(arr, amount, dpi=300, seed=0, rows=1024):
+    """Add fine luminance grain of `amount` levels, strongest in midtones
+    and fading out in highlights and shadows. The grain size is fixed on
+    paper (about 0.07 mm), whatever the DPI. Works in strips."""
+    if amount <= 0:
+        return arr
+    sigma = 0.8 * dpi / 300
+    rng = np.random.default_rng(seed)
+    out = np.empty_like(arr)
+    pad = int(3 * sigma) + 2
+    for top in range(0, arr.shape[0], rows):
+        a0, b0 = max(0, top - pad), min(arr.shape[0], top + rows + pad)
+        noise = rng.standard_normal((b0 - a0, arr.shape[1]), dtype=np.float32)
+        noise = cv2.GaussianBlur(noise, (0, 0), sigma)
+        noise *= amount / max(float(noise.std()), 1e-6)
+        strip = arr[a0:b0].astype(np.float32)
+        luma = (strip.mean(axis=2) if strip.ndim == 3 else strip) / 255
+        noise *= 4 * luma * (1 - luma)
+        strip = strip + (noise[..., None] if strip.ndim == 3 else noise)
+        out[top:top + rows] = np.clip(strip + 0.5, 0, 255).astype(np.uint8)[top - a0: top - a0 + rows]
+    return out
+
+
 def finish_for_print(arr, sharpen=0.5, sharpen_radius=2.0, shadows=0.03, midtones=0.05):
     """Sharpen and tone-lift the luminance only (Lab L for color images)."""
     lut = tone_curve(shadows, midtones)

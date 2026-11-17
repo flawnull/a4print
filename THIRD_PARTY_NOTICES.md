@@ -32,8 +32,7 @@ SOFTWARE.
 
 a4print doesn't include these files. `a4print-setup-ai` and `a4print-setup-ai --max` download them from their authors' GitHub releases when you ask for them.
 
-- **Real-ESRGAN** (realesrgan-ncnn-vulkan program and the RealESRGAN_x4plus model), by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan. BSD-3-Clause license. https://github.com/xinntao/Real-ESRGAN
-- **4xNomosWebPhoto_esrgan**, by Philip Hofmann. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/. Used unmodified. https://github.com/Phhofm/models/releases/tag/4xNomosWebPhoto_esrgan
+- **Real-ESRGAN** (realesrgan-ncnn-vulkan program and the RealESRGAN_x4plus and RealESRNet_x4plus models), by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan. BSD-3-Clause license. https://github.com/xinntao/Real-ESRGAN. `a4print-setup-ai` converts the RealESRNet_x4plus weights to the ncnn format on your computer; the weights themselves are unchanged apart from being stored at half precision.
 - **spandrel**, the library that loads the models, by the chaiNNer Organization. MIT license. https://github.com/chaiNNer-org/spandrel
 
 ## YuNet face detector (bundled)

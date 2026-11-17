@@ -25,10 +25,10 @@ In order:
 2. Erases `--remove` regions. Inside each box it finds the marks themselves (text strokes, digits, a small logo) as the pixels that stand out from a median-filtered background, and inpaints only those with OpenCV (Telea method). The background between them stays original, and a frame line next to the box is not smeared in. A solid patch, or a mark too faint to tell apart, gets the whole box filled.
 3. Trims plain margins if `--trim-border` is set. The margin color is the median of the outermost pixel ring, so white, beige and any flat color work.
 4. Detects black-and-white images: 99% of pixels must be near-neutral (Lab chroma under 6) and almost none clearly colored, so a small colored logo keeps the image in color. B&W images are processed as one gray channel and saved with R = G = B, so a slight tint in the file can't turn into a color cast on paper.
-5. Cleans up, only when needed. Small images are cleaned before enlarging, so problems aren't enlarged. Large images are shrunk first, which is faster and already hides most noise.
+5. Cleans up, only when needed. Small images are cleaned before enlarging, so problems aren't enlarged. Large images are shrunk first, which is faster and already hides most noise. Photos going through the AI are left to the AI, which removes noise and JPEG artifacts itself.
    - Sensor noise, measured in the flat half of the image (Immerkaer's method with edges excluded, after Tai & Yang 2008), so texture like hair or fabric isn't mistaken for noise. 30% of the original grain is blended back, so photos don't get a plastic look.
    - JPEG artifacts in heavily compressed files (quality under 80, typical for Pinterest and social media). The quality is read from the file's quantization tables, as ImageMagick does.
-6. Crops or scales with Lanczos. With `--ai`, images under 240 DPI on paper go through Real-ESRGAN 4x, then Lanczos to the exact size, combined with a plain enlargement: tones from the original, edges from the AI, and texture the AI erased put back (see [AI upscaling](#ai-upscaling)). Sharper images skip the AI, since it would add minutes for no visible gain.
+6. Crops or scales with Lanczos. With `--ai`, images under 240 DPI on paper go through an AI model at 4x (RealESRNet for photos, Real-ESRGAN for artwork), then Lanczos to the exact size, combined with a plain enlargement: tones from the original, edges from the AI, and texture the AI erased put back (see [AI upscaling](#ai-upscaling)). Sharper images skip the AI, since it would add minutes for no visible gain. Photos enlarged more than 2x get fine print grain, so they don't look painted (see [print grain](#ai-upscaling)).
 7. Adds the white border (`fit`), the blurred extension (`extend`) and the `--margin`, if any.
 8. Applies a gentle unsharp mask and a shadow and midtone lift to luminance only (Lab L channel). Hue and saturation are left alone. Home inkjets print shadows darker than screens show them, which is what the lift compensates for.
 
@@ -38,7 +38,7 @@ The PDF stores the page as a quality-95 JPEG with no chroma subsampling. That ke
 
 ## AI upscaling
 
-Small images (most Pinterest and social media downloads print at 35-90 DPI on A4) gain the most from `--ai`. Real-ESRGAN draws sharp edges and plausible fine detail such as hair, fur, fabric and lettering, where plain resizing gives a blur.
+Small images (most Pinterest and social media downloads print at 35-90 DPI on A4) gain the most from `--ai`. The AI sharpens the edges and fine structure the image has, such as hair, fabric, eyes and lettering, where plain resizing gives a blur. It can't bring back detail the download doesn't contain; for photos, a4print uses a model that doesn't try to (see [choosing the models](#choosing-the-models)).
 
 On its own, an upscaling AI has two habits that hurt a print: it shifts tones (on a test photo of a cat, lightness changed by up to 13 Lab units, where about 2 is noticeable), and it wipes out fine texture, which turns skin waxy. So a4print doesn't print the AI result directly. It combines it with a plain enlargement, layer by layer:
 
@@ -52,37 +52,50 @@ Measured on a portrait: tone drift fell from 1.5 to 0.2 on average, skin texture
 
 `--ai-strength` mixes the result with a plain enlargement (`1` by default, `0.5` for half the AI effect).
 
-a4print's JPEG and noise cleanup runs before the AI. Without it, Real-ESRGAN turns JPEG blocks into invented blotches.
+For photos, a4print's own JPEG and noise cleanup is skipped when the AI runs: the photo model is trained to remove both, and cleaning first only took away real texture (0.72 against 0.67 SSIM to the original at 5x). Artwork is cleaned first, because Real-ESRGAN turns JPEG blocks into invented blotches.
 
 The preview (`name_preview.jpg`, and the slider on the web page) shows 5 x 5 cm of the print at actual size twice: as a plain enlargement of the original pixels and as a4print made it. It centers on the largest face, found with the YuNet detector, or else on the busiest area. That's where to judge what the AI did.
 
 ![Fur at print size: plain enlargement and a4print --max-quality](images/fur.jpg)
 
-*A cat photo printed far beyond its resolution (36 DPI on A4). The AI draws convincing fur where the original only has blur. At this enlargement the strands are the AI's invention, not recovered detail; the photo is CC0, from scikit-image.*
+*A cat photo printed far beyond its resolution (36 DPI on A4). The AI sharpens the strands the original has instead of drawing new ones, and fine grain keeps the fur from looking painted. Photo: CC0, from scikit-image.*
+
+**Print grain.** A photo enlarged more than about 3 times has no fine texture left, and even a faithful AI result prints as smooth areas that look painted. a4print adds fine luminance grain to those photos: none up to 2x, rising to 3 levels out of 255 at 5x, strongest in midtones and absent in white and black. The grain is random and about 0.07 mm across on paper, so it reads as photographic texture without drawing any shapes. `--no-grain` turns it off.
 
 What was tried and left out: Real-ESRGAN's illustration model (`realesrgan-x4plus-anime`) is 3 times faster but draws a white halo around edges, which shows on paper. You can still pick it with `--ai-model realesrgan-x4plus-anime`.
 
-## Maximum quality models
+## Choosing the models
 
-`--max-quality` uses newer AI models run with [PyTorch](https://pytorch.org), picked per image:
+The first versions picked AI models by eye and by edge sharpness, and chose GAN models: they draw the crispest detail. On real Pinterest downloads that went wrong. Small faces in a crowd came out as mannequins or cartoons, and a black-and-white photo got a fish-scale mesh across its flat areas. A GAN is trained to make detail that looks real, not detail that is there.
 
-- **Photos**: [4xNomosWebPhoto_esrgan](https://github.com/Phhofm/models) by Philip Hofmann, trained on web photos with JPEG and WebP compression, blur and noise.
-- **Artwork and graphics**: Real-ESRGAN x4plus, which still draws the crispest edges and lettering.
+So the models were chosen again with a ground-truth test. Nine photos (crowds, group photos, a street scene, a portrait, a cat, a coffee cup) were shrunk the way Pinterest shrinks images (to a third or a fifth of their size, then saved as JPEG at quality 80), enlarged back with each method through a4print's merge, and compared with the originals. Faces were found in the originals with YuNet and also scored on their own.
 
-Setup is in the [guide](guide.md#optional-maximum-quality).
+| At 3x (100 DPI on A4) | SSIM | Face SSIM | Wrong detail | Face wrong detail |
+|---|---|---|---|---|
+| Plain enlargement | 0.802 | 0.817 | 0.87 | 0.83 |
+| Real-ESRGAN x4plus (GAN) | 0.793 | 0.769 | 1.04 | 1.07 |
+| 4xNomosWebPhoto_esrgan (GAN) | 0.760 | 0.772 | 1.18 | 1.19 |
+| **RealESRNet x4plus** | **0.837** | **0.833** | **0.81** | **0.83** |
 
-How the models were chosen: six models were run on a photo of a cat, a portrait and a poster-style graphic, each through a4print's merge, and compared on edge sharpness and by eye.
+| At 5x (60 DPI on A4) | SSIM | Face SSIM | Wrong detail | Face wrong detail |
+|---|---|---|---|---|
+| Plain enlargement | 0.689 | 0.674 | 0.97 | 0.94 |
+| Real-ESRGAN x4plus (GAN) | 0.678 | 0.612 | 1.13 | 1.25 |
+| 4xNomosWebPhoto_esrgan (GAN) | 0.651 | 0.608 | 1.24 | 1.33 |
+| **RealESRNet x4plus** | **0.735** | **0.711** | **0.93** | **0.93** |
 
-| Model | Cat (fur) | Portrait | Graphic |
-|---|---|---|---|
-| Real-ESRGAN x4plus (`--ai`) | 210 | 212 | **444** |
-| **4xNomosWebPhoto_esrgan** | **266** | **211**, more natural skin | 431 |
-| 4xNomosWebPhoto_RealPLKSR | 218 | 184 | 428 |
-| 4xRealWebPhoto_v4_dat2 | 164 | 171 | 409 |
-| 4xNomosWebPhoto_atd | 209 | 174 | 434 |
-| SwinIR-L (real-world GAN) | 195 | 186, glossy skin | 422 |
+*Wrong detail* is the fine-detail error against the original, relative to the fine detail the original has: above 1, a method adds more wrong detail than there was real detail. Both GAN models are above 1, and further above it on faces. RealESRNet, the Real-ESRGAN network trained without the GAN loss, was the most faithful on every measure and kept about twice the fine detail of a plain enlargement (0.77 of the original's at 3x, against 0.42).
 
-Newer designs weren't automatically better: the transformer models (DAT2, ATD, SwinIR) were softer and 3-5 times slower. The gain over `--ai` is real but moderate: crisper hair and fur and more natural skin on photos, and the same result on artwork.
+It also helps at small enlargements: at 1.5x and 2x it was ahead of the plain enlargement on SSIM and wrong detail, with fine detail close to the original's (1.06). So the AI still runs up to 240 DPI.
+
+What a4print uses now:
+
+- **Photos**: RealESRNet x4plus, with `--ai` and with `--max-quality`. The Real-ESRGAN releases publish it only as PyTorch weights, so `a4print-setup-ai` downloads them, checks their checksum, and writes them into the ncnn layout of Real-ESRGAN x4plus, which is the same network. The converted file is checked against a second pinned checksum. Its output matches PyTorch within 0.7 of 255 levels on average.
+- **Artwork and graphics**: Real-ESRGAN x4plus. On flat colors, outlines and lettering, crisp edges are what the original has, and the GAN draws them best.
+
+`--max-quality` runs the same two networks with [PyTorch](https://pytorch.org) in full precision, and works where the Vulkan graphics driver `--ai` needs is missing. Setup is in the [guide](guide.md#optional-maximum-quality).
+
+Earlier comparison, by edge sharpness only: SwinIR-L, DAT2, ATD and RealPLKSR were softer than the GAN models and 3 to 5 times slower, and Real-ESRGAN's illustration model drew halos.
 
 ## Engineering notes
 
@@ -94,9 +107,11 @@ Each of these was measured before it was kept.
 | Skin texture | Fine texture in smooth areas: 0.49 to 1.00 of the original, edge sharpness unchanged |
 | Noise detection | Measuring only the flat half of the image: clean photos score under 2, noisy ones 3.2 and up, so texture isn't smoothed away |
 | Artwork vs photo | Edge abruptness separates them: photos 0.86 or less even when compressed, graphics 0.95 or more |
+| AI models | Ground truth, nine photos at 3x: SSIM 0.76 (previous photo model) to 0.84, face SSIM 0.77 to 0.83 |
+| Cleanup before the AI | Skipped for photos: SSIM 0.67 to 0.72 at 5x |
 | Tiled AI inference | 64 px overlap: 99.9% of pixels within 2 of 255 levels of a single whole-image pass, so no visible seams |
 | Poster memory | 3x3 poster with AI from a 12 MP photo: peak 3.6 GB to 2.3 GB (strip-wise merge and filters, 8-bit blending) |
 | Large photos | 48 MP photo: 28 s to 7 s by shrinking before cleanup; 120 MP JPEGs decode at reduced size in 2.6 s |
 | Poster assembly | A test cuts and reassembles the sheets in software and compares the result with the poster pixel for pixel |
 
-Testing: about 150 tests on Linux, macOS and Windows with Python 3.10 and 3.13, using generated and public-domain images only. Security is described in [SECURITY.md](../SECURITY.md).
+Testing: about 220 tests on Linux, macOS and Windows with Python 3.10 and 3.13, using generated and public-domain images only. Security is described in [SECURITY.md](../SECURITY.md).
