@@ -329,6 +329,32 @@ def unsharp(channel, amount=0.5, radius=2.0, threshold=2, rows=1024):
     return out
 
 
+PRIOR_STEPS = tuple(1 + 0.25 * i for i in range(1, 13))   # 1.25 ... 4
+
+
+def prior_enlargement(arr, limit_db=40.0, steps=PRIOR_STEPS):
+    """How many times the image was already enlarged before it reached us,
+    e.g. a phone screenshot of a small Pinterest image: the largest factor
+    it can be shrunk by while losing less than `limit_db` (40 dB is an RMS
+    change under 2.5 of 255 levels, invisible). 1.0 if any shrinking shows.
+
+    Such an image holds far less detail than its pixel count says. The AI
+    works from the real detail, so it gets the image at that size."""
+    luma = (arr.mean(axis=2) if arr.ndim == 3 else arr).astype(np.float32)
+    h, w = luma.shape
+    best = 1.0
+    for f in steps:
+        if min(w, h) / f < 64:
+            break
+        small = cv2.resize(luma, (round(w / f), round(h / f)), interpolation=cv2.INTER_AREA)
+        back = cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)
+        mse = float(np.mean((luma - back) ** 2))
+        if 10 * math.log10(255 ** 2 / max(mse, 1e-6)) < limit_db:
+            break
+        best = float(f)
+    return best
+
+
 def grain_amount(scale):
     """Print grain (standard deviation in levels) for a photo enlarged
     `scale` times: none up to 2x, then rising to 3 levels at 5x.

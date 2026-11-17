@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+- Screenshots and other images that were enlarged before are detected: a4print finds the size their detail really has (the largest shrink that changes nothing visible) and gives the AI the image at that size. On a 1168 px phone screenshot whose detail was 425 px wide, this removed the scratches and smears the AI drew on walls and the painted look on edges. Photos at their real resolution are left as they are; in a ground-truth test the detector never fired on them.
+- The print quality verdict and the DPI on the web page follow the real detail, and the report says when an image was enlarged before.
+- Print grain is sized to the real enlargement.
+
 ## 0.14.0
 
 - Photos are enlarged with RealESRNet x4plus, with `--ai` and `--max-quality`. The GAN models used before drew mannequin or cartoon faces in crowds and a fish-scale mesh on flat areas. In a ground-truth test on nine photos, RealESRNet was the most faithful on every measure: face SSIM at 3x went from 0.77 to 0.83, and the error in fine detail dropped below that of a plain enlargement. Artwork keeps Real-ESRGAN x4plus.

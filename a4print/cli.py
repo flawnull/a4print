@@ -165,10 +165,15 @@ def describe(r, opts):
     else:
         lines.append(("page", f"{paper} {r.orientation}, {_fill_text(r)}, {r.resize_method}"))
         lines.append(("resolution", f"{r.effective_dpi:.0f} DPI at {paper}, {r.quality}"))
+    if r.prior_enlargement > 1:
+        w = round(r.source_size[0] / r.prior_enlargement)
+        lines.append(("detail", f"the image was enlarged before (a screenshot?): its real detail is about "
+                                f"{w} px wide, {r.effective_dpi / r.prior_enlargement:.0f} DPI on paper"))
     if r.crop_note:
         lines.append(("crop", r.crop_note))
     if opts.enhance:
-        lines.append(("cleanup", f"applied ({r.cleanup})" if r.cleanup else "not needed"))
+        lines.append(("cleanup", r.cleanup if r.cleanup.startswith("left") else
+                      f"applied ({r.cleanup})" if r.cleanup else "not needed"))
         if r.grain:
             lines.append(("grain", "fine print grain added, so the enlargement doesn't look painted (--no-grain)"))
     lines += [("warning", w) for w in r.warnings]

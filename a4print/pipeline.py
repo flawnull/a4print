@@ -63,6 +63,7 @@ class Report:
     crop_note: str = ""            # set when the crop was moved for faces
     cleanup: str = ""              # why denoise ran, "" if it didn't
     grain: bool = False            # print grain was added
+    prior_enlargement: float = 1.0  # how much the source was enlarged before (screenshots)
     resize_method: str = ""
     content: str = ""              # "artwork" or "photo", when AI ran
     detail: tuple = None           # (plain enlargement, result) of one area, for the preview
@@ -167,8 +168,20 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
     use_ai = wants_ai and report.effective_dpi < AI_USEFUL_BELOW_DPI
     if scale >= 1:
         strength, label, protect, model = opts.ai_strength, "", None, opts.ai_model
-        if use_ai or (scale > 2 and opts.enhance and opts.grain):
+        wants_grain = opts.enhance and opts.grain
+        if use_ai or (scale > 1 and wants_grain):
             report.content = enhance.content_type(arr)
+        if report.content == "photo" and scale > 1:
+            # A photo that was enlarged before (a screenshot of a small
+            # download) has less detail than pixels. Work from its real size:
+            # the AI then sees the sharpness it was trained on.
+            report.prior_enlargement = enhance.prior_enlargement(arr)
+            # Judge the print by the detail it has, not by its pixel count.
+            report.quality = layout.print_quality(report.effective_dpi / report.prior_enlargement)
+            if report.prior_enlargement > 1 and use_ai:
+                h0, w0 = arr.shape[:2]
+                arr = cv2.resize(arr, (max(1, round(w0 / report.prior_enlargement)),
+                                       max(1, round(h0 / report.prior_enlargement))), interpolation=cv2.INTER_AREA)
         if use_ai and not opts.max_quality and model is None:
             model = upscale.ai_model_for(report.content)
             if model is None:
@@ -202,12 +215,12 @@ def render(arr, opts, area, report, jpeg_quality=None, dpi=layout.DPI):
         arr, report.resize_method = upscale.resize(arr, out_size)
         if opts.enhance:
             arr, report.cleanup = enhance.denoise(arr, opts.denoise, jpeg_quality if scale >= 0.5 else None)
-    if scale > 2 and opts.enhance and opts.grain:
+    real_scale = scale * report.prior_enlargement
+    if real_scale > 2 and opts.enhance and opts.grain and report.content == "photo":
         # Strong enlargements of photos print smooth and painted-looking;
         # fine grain reads as photographic texture (see enhance.grain_amount).
-        if report.content == "photo":
-            arr = enhance.add_grain(arr, enhance.grain_amount(scale), dpi)
-            report.grain = True
+        arr = enhance.add_grain(arr, enhance.grain_amount(real_scale), dpi)
+        report.grain = True
     if wants_ai and not use_ai and report.effective_dpi >= AI_USEFUL_BELOW_DPI:
         report.resize_method += f" (AI skipped: already {report.effective_dpi:.0f} DPI)"
 

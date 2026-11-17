@@ -60,6 +60,8 @@ The preview (`name_preview.jpg`, and the slider on the web page) shows 5 x 5 cm 
 
 *A cat photo printed far beyond its resolution (36 DPI on A4). The AI sharpens the strands the original has instead of drawing new ones, and fine grain keeps the fur from looking painted. Photo: CC0, from scikit-image.*
 
+**Images enlarged before.** Many downloads, and every phone screenshot of one, were enlarged before they reached you: a 1168 px screenshot can hold the detail of a 425 px image. Given such an image, the AI sees blur at the wrong scale and turns compression traces into scratches and smears. a4print finds the real size as the largest shrink that changes the image by less than 2.5 of 255 levels (RMS), and the AI works from there. On nine photos at their real resolution the detector never fired; on synthetic enlarged copies the result was the same within 0.007 SSIM, and on a real phone screenshot it removed the smears. The verdict and the DPI on the web page follow the real detail.
+
 **Print grain.** A photo enlarged more than about 3 times has no fine texture left, and even a faithful AI result prints as smooth areas that look painted. a4print adds fine luminance grain to those photos: none up to 2x, rising to 3 levels out of 255 at 5x, strongest in midtones and absent in white and black. The grain is random and about 0.07 mm across on paper, so it reads as photographic texture without drawing any shapes. `--no-grain` turns it off.
 
 What was tried and left out: Real-ESRGAN's illustration model (`realesrgan-x4plus-anime`) is 3 times faster but draws a white halo around edges, which shows on paper. You can still pick it with `--ai-model realesrgan-x4plus-anime`.
@@ -114,4 +116,4 @@ Each of these was measured before it was kept.
 | Large photos | 48 MP photo: 28 s to 7 s by shrinking before cleanup; 120 MP JPEGs decode at reduced size in 2.6 s |
 | Poster assembly | A test cuts and reassembles the sheets in software and compares the result with the poster pixel for pixel |
 
-Testing: about 220 tests on Linux, macOS and Windows with Python 3.10 and 3.13, using generated and public-domain images only. Security is described in [SECURITY.md](../SECURITY.md).
+Testing: about 225 tests on Linux, macOS and Windows with Python 3.10 and 3.13, using generated and public-domain images only. Security is described in [SECURITY.md](../SECURITY.md).

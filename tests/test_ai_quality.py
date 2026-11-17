@@ -209,3 +209,21 @@ def test_photo_model_does_its_own_cleanup(fake_ai):
     assert report.cleanup == "left to the AI photo model"
     _, report = prepare(with_noise(gradient(300, 200), 6), Options())
     assert report.cleanup and report.cleanup != "left to the AI photo model"
+
+
+def test_the_ai_works_from_the_real_detail_of_a_screenshot(fake_ai, monkeypatch):
+    from .test_grain import textured
+
+    sizes = []
+    real_x4 = upscale.realesrgan_x4
+
+    def record(arr, model="realesrgan-x4plus"):
+        sizes.append(arr.shape[1])
+        return real_x4(arr, model)
+    monkeypatch.setattr(upscale, "realesrgan_x4", record)
+    shot = cv2.resize(textured(), None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)   # 600 px wide
+    _, report = prepare(shot, Options(ai=True))
+    assert report.prior_enlargement >= 2
+    assert sizes == [round(600 / report.prior_enlargement)]     # the AI got the real-size image
+    _, report = prepare(textured(), Options(ai=True))
+    assert report.prior_enlargement == 1 and sizes[-1] == 300

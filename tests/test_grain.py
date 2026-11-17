@@ -1,5 +1,6 @@
 """Print grain on strongly enlarged photos."""
 
+import cv2
 import numpy as np
 
 from a4print import enhance
@@ -51,5 +52,27 @@ def test_no_grain_on_artwork_or_large_images():
 
     _, report = prepare(flat_graphic(), Options())
     assert report.content == "artwork" and not report.grain
-    _, report = prepare(with_noise(gradient(1800, 1270), 4), Options())
-    assert not report.grain
+    _, report = prepare(textured(1800, 1270), Options())
+    assert report.prior_enlargement == 1 and not report.grain
+
+
+def textured(w=300, h=220, seed=3):
+    """A photo-like image with detail down to about two pixels."""
+    rng = np.random.default_rng(seed)
+    base = cv2.GaussianBlur(rng.normal(128, 40, (h // 2, w // 2)).astype(np.float32), (0, 0), 0.5)
+    img = cv2.resize(base, (w, h), interpolation=cv2.INTER_CUBIC) + rng.normal(0, 2, (h, w))
+    return np.dstack([np.clip(img, 0, 255).astype(np.uint8)] * 3)
+
+
+def test_prior_enlargement_is_found_and_real_images_are_left_alone():
+    real = textured()
+    assert enhance.prior_enlargement(real) == 1.0
+    for k in (2.0, 3.0):
+        big = cv2.resize(real, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)
+        assert k <= enhance.prior_enlargement(big) <= k + 0.75
+
+
+def test_a_screenshot_gets_grain_for_its_real_enlargement():
+    shot = cv2.resize(textured(), None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)   # 750 px wide
+    _, report = prepare(shot, Options())
+    assert report.prior_enlargement >= 2 and report.grain        # 3.3x on paper, about 8x in real detail

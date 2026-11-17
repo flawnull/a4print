@@ -269,9 +269,11 @@ class App:
         ]
         summary = {
             "quality": report.quality.split(":")[0].split(",")[0],
-            "dpi": round(report.effective_dpi),
-            "low": report.effective_dpi < opts.min_dpi,
+            "dpi": round(report.effective_dpi / report.prior_enlargement),   # from the detail it really has
+            "low": report.effective_dpi / report.prior_enlargement < opts.min_dpi,
             "ai_used": report.resize_method.endswith("+ Lanczos"),
+            "real_width": round(report.source_size[0] / report.prior_enlargement)
+                          if report.prior_enlargement > 1 else 0,
             "ai_note": (("maximum quality, " if opts.max_quality else "")
                         + ("tuned for artwork" if report.content == "artwork" else "tuned for photos")
                         + ("; small text kept as is" if "small text" in report.resize_method else ""))
@@ -1023,17 +1025,19 @@ function verdict(summary, aiChecked) {
   const key = Object.keys(VERDICTS).find(k => summary.quality.startsWith(k)) || "low";
   let [cls, label, sentence] = VERDICTS[key];
   const box = el("div", {class: "verdict"});
+  const enlarged = summary.real_width ? " This image was enlarged before (a screenshot?): its real detail is about " +
+    summary.real_width + " px wide, so it prints softer than its size suggests." : "";
   if (summary.ai_used && summary.dpi < 240) {
     // Separate what the file had from what the print gets.
     const small = summary.dpi < 150 ? "small" : "a little small";
     box.append(el("b", {class: "ok"}, "Sharpened with AI"),
       document.createTextNode(". The original is " + small + " for this size (" + summary.dpi +
         " DPI). Edges print cleaner than a plain enlargement, but detail the original doesn't have " +
-        "can't be brought back. Compare below."));
+        "can't be brought back." + enlarged + " Compare below."));
     return box;
   }
   const b = el("b", {class: cls}, "Print quality: " + label);
-  box.append(b, document.createTextNode(" (" + summary.dpi + " DPI). " + sentence));
+  box.append(b, document.createTextNode(" (" + summary.dpi + " DPI). " + sentence + enlarged));
   if (summary.low && !summary.ai_used) {
     const aiReady = !$("ai-on").hidden, aiSetup = !$("ai-setup").hidden;
     box.append(document.createTextNode(aiReady ? " Tick \"Sharpen with AI\" and make it again."
