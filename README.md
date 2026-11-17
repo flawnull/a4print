@@ -85,8 +85,6 @@ The models were chosen with a ground-truth test: nine photos, including crowds w
 
 Python, OpenCV, Pillow and NumPy for image processing; img2pdf and pikepdf for PDFs; Real-ESRGAN (ncnn/Vulkan) and PyTorch with spandrel for AI upscaling; YuNet for face detection. The web page uses only Python's standard library and plain HTML, CSS and JavaScript.
 
-Developed with [Claude Code](https://claude.com/claude-code) as an AI pair programmer: every change was measured on real images, covered by tests, and checked on all three operating systems.
-
 ```
 a4print/
 ├── cli.py          command line, report wording
