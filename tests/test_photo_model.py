@@ -85,7 +85,7 @@ def test_weights_are_written_in_ncnn_order_and_format(tmp_path, monkeypatch):
     for k in state:
         assert np.allclose(read[k], state[k].astype(np.float32))
 
-    (tmp_path / "g.param").write_text(GRAPH)
+    (tmp_path / "g.param").write_bytes(GRAPH.encode())
     setup_ai._write_ncnn_bin(read, tmp_path / "g.param", tmp_path / "m.bin")
     data, pos = (tmp_path / "m.bin").read_bytes(), 0
     for name in ("conv_first", "conv_last"):
@@ -103,7 +103,7 @@ def test_weights_that_dont_fit_the_graph_are_refused(tmp_path, monkeypatch):
     state = {"conv_first.weight": np.zeros((4, 3, 3, 3)), "conv_first.bias": np.zeros(4),
              "conv_last.weight": np.zeros((3, 4, 3, 3)), "conv_last.bias": np.zeros(3)}
     write_checkpoint(tmp_path / "w.pth", state, monkeypatch)
-    (tmp_path / "g.param").write_text(GRAPH)
+    (tmp_path / "g.param").write_bytes(GRAPH.encode())
     with pytest.raises(setup_ai.SetupError):
         setup_ai._write_ncnn_bin(setup_ai._read_pth(tmp_path / "w.pth"), tmp_path / "g.param", tmp_path / "m.bin")
 
@@ -127,7 +127,7 @@ def test_install_photo_model_checks_the_result(tmp_path, monkeypatch):
              "conv_last.weight": np.ones((3, 2, 3, 3)), "conv_last.bias": np.ones(3)}
     write_checkpoint(tmp_path / "w.pth", state, monkeypatch)
     setup_ai.models_dir().mkdir(parents=True)
-    (setup_ai.models_dir() / setup_ai.GRAPH).write_text(GRAPH)
+    (setup_ai.models_dir() / setup_ai.GRAPH).write_bytes(GRAPH.encode())
     import hashlib
     monkeypatch.setattr(setup_ai, "PHOTO_WEIGHTS",
                         ("", hashlib.sha256((tmp_path / "w.pth").read_bytes()).hexdigest(), 0))
@@ -137,7 +137,7 @@ def test_install_photo_model_checks_the_result(tmp_path, monkeypatch):
         setup_ai.install_photo_model(url=url)
     assert not setup_ai.photo_model_installed()
 
-    (tmp_path / "g.param").write_text(GRAPH)
+    (tmp_path / "g.param").write_bytes(GRAPH.encode())
     setup_ai._write_ncnn_bin(setup_ai._read_pth(tmp_path / "w.pth"), tmp_path / "g.param", tmp_path / "m.bin")
     monkeypatch.setattr(setup_ai, "PHOTO_BIN_SHA256", hashlib.sha256((tmp_path / "m.bin").read_bytes()).hexdigest())
     # Right files, but a graph other than the official one: refused.
